@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+*.log
+
+# Local environment and credentials
+.env
+.env.*
+
+# Private working files
+/HANDOFF.md
+AGENTS.override.md
+CLAUDE.local.md
+
+# Local agent scratch space and environment notes; never committed
+.agents/
+
+tmp/

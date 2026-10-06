@@ -1,0 +1,70 @@
+{
+  "name": "@openduo/channel-tether",
+  "version": "0.1.0",
+  "description": "The tether channel for duoduo: other AI assistants connect over MCP and share its memory and context.",
+  "private": false,
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/plugin.js",
+  "files": [
+    "dist/",
+    "package.json",
+    "LICENSE"
+  ],
+  "aladuo": {
+    "channel": {
+      "type": "tether",
+      "bin": "dist/plugin.js",
+      "verbs": [
+        "list",
+        "revoke",
+        "status",
+        "passkey",
+        "client",
+        "doorbell"
+      ],
+      "envAllowlist": [
+        "ALADUO_TETHER_HOST",
+        "ALADUO_TETHER_PORT",
+        "ALADUO_TETHER_PUBLIC_URL",
+        "ALADUO_TETHER_REQUEST_LIMIT_BYTES",
+        "ALADUO_TETHER_CHALLENGE_CAP",
+        "ALADUO_TETHER_CODE_LIFETIME_MS",
+        "ALADUO_TETHER_CHALLENGE_LIFETIME_MS",
+        "ALADUO_TETHER_CIMD_TIMEOUT_MS",
+        "ALADUO_TETHER_CIMD_MAX_BYTES",
+        "ALADUO_PULL_WAIT_MS",
+        "ALADUO_TETHER_TOOLS_LIST_TTL_MS"
+      ]
+    }
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "lint:types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "test:rig": "vitest run --config vitest.rig.config.ts",
+    "prepack": "node scripts/build-plugin.mjs"
+  },
+  "dependencies": {
+    "@openduo/protocol": "^0.8.4"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.3.0",
+    "@simplewebauthn/server": "^14.0.3",
+    "@types/node": "^20.19.43",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "fastify": "^5.12.5",
+    "jose": "^6.2.12",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "ws": "^8.21.3"
+  }
+}

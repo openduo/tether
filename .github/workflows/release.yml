@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org/
+
+      - name: Check the tag matches the package version
+        run: |
+          VER=$(node -p "require('./packages/channel-tether/package.json').version")
+          if [[ "${GITHUB_REF_NAME}" != "v${VER}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match @openduo/channel-tether ${VER}; expected v${VER}."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: License headers
+        run: pnpm run license:check
+
+      - name: Typecheck
+        run: pnpm run lint:types
+
+      - name: Tests
+        run: pnpm test
+
+      # Produces packages/channel-tether/dist/, the package's shipped files;
+      # prepack runs the same build script again on publish.
+      - name: Build the channel plugin
+        run: pnpm run build
+
+      # Pre-release versions (with a hyphen) publish to `next`, so that
+      # `latest` keeps pointing at the last stable version.
+      - name: Compute npm dist-tag
+        id: npm_tag
+        run: |
+          VER=$(node -p "require('./packages/channel-tether/package.json').version")
+          if [[ "$VER" == *-* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish @openduo/channel-tether
+        run: |
+          VER=$(node -p "require('./packages/channel-tether/package.json').version")
+          npm view "@openduo/channel-tether@$VER" version &>/dev/null && echo "SKIP: @openduo/channel-tether@$VER already published" || \
+            (cd packages/channel-tether && pnpm publish --access public --no-git-checks --tag ${{ steps.npm_tag.outputs.tag }})
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # After a stable release, move `next` to it too, so `next` is never
+      # older than `latest`.
+      - name: Advance next dist-tag to match latest (stable releases only)
+        if: steps.npm_tag.outputs.tag == 'latest'
+        run: |
+          VER=$(node -p "require('./packages/channel-tether/package.json').version")
+          npm dist-tag add "@openduo/channel-tether@$VER" next
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
