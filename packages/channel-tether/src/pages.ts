@@ -135,8 +135,11 @@ export type AuthorizePageInput = {
   clientId: string;
   /** As the request named it; unverified until the passkey, unless hosted. */
   redirectUri: string;
-  /** A document hosted by this duoduo, whose redirect GET already checked. */
-  hosted: boolean;
+  /**
+   * Where the client document comes from: built into this duoduo or hosted by
+   * it (GET already checked the redirect), or the client's own, unverified until the passkey.
+   */
+  origin: "built-in" | "hosted" | "external";
   scopes: readonly Scope[];
   name: string;
   /** The reason a submitted name was refused, after a verified passkey. */
@@ -150,22 +153,31 @@ export function authorizePage(input: AuthorizePageInput): Page {
   const main = [
     `<h1>Connect an app to duoduo</h1>`,
     `<p>An app asks to connect.</p>`,
-    ...(input.hosted
+    ...(input.origin === "built-in"
       ? [
-          `<p>App: <b>${escapeHtml(input.clientId)}</b> <span class="verified">(a client document hosted by this duoduo)</span></p>`,
-          `<p>Returns to: <b>${escapeHtml(input.redirectUri)}</b> <span class="verified">(verified: that document lists it)</span></p>`,
-          `<p class="claim">This client document was added on the duoduo host and lists only` +
-            ` addresses on the owner's own device. After your passkey the browser goes to that` +
-            ` address with a code; if nothing answers there, copy the whole address from the` +
-            ` address bar back to the app.</p>`
+          `<p>App: <b>${escapeHtml(input.clientId)}</b> <span class="verified">(the duoduo-tether command line, built into this duoduo)</span></p>`,
+          `<p>Returns to: <b>${escapeHtml(input.redirectUri)}</b> <span class="verified">(verified: a loopback address on the device that started the login)</span></p>`,
+          `<p class="claim">duoduo-tether runs on the device of the agent that asks to connect. After` +
+            ` your passkey the browser goes to that address with a code; if nothing answers there,` +
+            ` copy the whole address from the address bar and paste it into the waiting` +
+            ` duoduo-tether login.</p>`
         ]
-      : [
-          `<p>App: <b>${escapeHtml(input.clientId)}</b> <span class="claim">(not verified yet)</span></p>`,
-          `<p>Returns to: <b>${escapeHtml(input.redirectUri)}</b> <span class="claim">(not verified yet)</span></p>`,
-          `<p class="claim">Several apps can share one app address; the return address tells you which` +
-            ` one asks. After your passkey, duoduo fetches the app address and checks that it lists` +
-            ` this return address; if it does not, nothing is approved.</p>`
-        ]),
+      : input.origin === "hosted"
+        ? [
+            `<p>App: <b>${escapeHtml(input.clientId)}</b> <span class="verified">(a client document hosted by this duoduo)</span></p>`,
+            `<p>Returns to: <b>${escapeHtml(input.redirectUri)}</b> <span class="verified">(verified: that document lists it)</span></p>`,
+            `<p class="claim">This client document was added on the duoduo host and lists only` +
+              ` addresses on the owner's own device. After your passkey the browser goes to that` +
+              ` address with a code; if nothing answers there, copy the whole address from the` +
+              ` address bar back to the app.</p>`
+          ]
+        : [
+            `<p>App: <b>${escapeHtml(input.clientId)}</b> <span class="claim">(not verified yet)</span></p>`,
+            `<p>Returns to: <b>${escapeHtml(input.redirectUri)}</b> <span class="claim">(not verified yet)</span></p>`,
+            `<p class="claim">Several apps can share one app address; the return address tells you which` +
+              ` one asks. After your passkey, duoduo fetches the app address and checks that it lists` +
+              ` this return address; if it does not, nothing is approved.</p>`
+          ]),
     `<p>It will be able to:</p><ul>`,
     ...input.scopes.map((scope) => `<li>${escapeHtml(SCOPE_WORDS[scope])}</li>`),
     `</ul>`,

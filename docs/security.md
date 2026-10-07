@@ -30,6 +30,9 @@ loopback by default (`ALADUO_TETHER_HOST` names another IP literal). This page s
   owner's passkey, and the return address is checked against the document after it: exactly,
   except that a loopback `http` address may use any port (RFC 8252 section 7.3). A loopback port
   reaches only the machine whose browser approved.
+- **The built-in client is approved like any other.** The `duoduo-tether` command line's client
+  document is a constant of the channel, so nothing is fetched for it; the owner's passkey and name
+  are still required for every connection, and its return address is loopback only.
 - **Grants are bound to the origin.** A token issued under one public URL is refused under another.
 
 ## What a connected assistant can reach
@@ -58,6 +61,10 @@ first-hand confirmation.
 - **Bearer tokens** do not expire; revoke a connection to end it. They cross whatever route
   exposes the channel, so whoever controls that route sees them, and any secret the route itself
   uses guards them too.
+
+- **The command line's token file** (`$XDG_CONFIG_HOME/tether/<host>.json`, by default under
+  `~/.config/tether/`, mode `0600`) holds a bearer token that does not expire. Any process that can
+  read it acts as that assistant until the connection is revoked.
 
 ## If something is compromised
 

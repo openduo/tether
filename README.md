@@ -13,10 +13,10 @@ the daemon itself does not know tether exists.
 
 ## Layout
 
-| path                      | what it is                                                                                                 |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `packages/channel-tether` | The channel: OAuth and passkeys, the MCP endpoint, mail, host verbs                                        |
-| `docs/`                   | [Protocol surface](docs/protocol.md), [deployment](docs/deployment.md), [security model](docs/security.md) |
+| path                      | what it is                                                                                                                                     |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/channel-tether` | The channel: OAuth and passkeys, the MCP endpoint, mail, host verbs                                                                            |
+| `docs/`                   | [Protocol surface](docs/protocol.md), [deployment](docs/deployment.md), [security model](docs/security.md), [client command line](docs/cli.md) |
 
 ## Quick start
 

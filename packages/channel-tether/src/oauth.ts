@@ -29,6 +29,7 @@ import {
   type ClientAuth,
   type FetchLike
 } from "./cimd";
+import { BUILT_IN_CLIENT_NAME, BUILT_IN_REDIRECT_URIS } from "./client-contract";
 import { hostedClientOf, hostedNameOf, redirectListed } from "./clients";
 import { RESERVED_TETHER_NAMES, SCOPES, type TetherConfig, type Scope } from "./config";
 import { DaemonUnreachableError, type DaemonCall } from "./forward";
@@ -237,6 +238,11 @@ function parseScopes(raw: unknown): Scope[] | null {
   return SCOPES.filter((scope) => asked.includes(scope));
 }
 
+function originOf(hosted: string | null): "built-in" | "hosted" | "external" {
+  if (hosted === BUILT_IN_CLIENT_NAME) return "built-in";
+  return hosted === null ? "external" : "hosted";
+}
+
 async function renderApproval(
   deps: OAuthDeps,
   request: AuthorizeRequest,
@@ -252,7 +258,7 @@ async function renderApproval(
   return authorizePage({
     challenge,
     clientId: request.clientId,
-    hosted: hostedNameOf(request.clientId, deps.config.publicUrl) !== null,
+    origin: originOf(hostedNameOf(request.clientId, deps.config.publicUrl)),
     redirectUri: request.redirectUri,
     scopes: request.scopes as Scope[],
     name,
@@ -275,6 +281,8 @@ function cannotConnect(description: string): Reply {
  * from `clients.json`, never fetched.
  */
 async function hostedAccepts(store: Store, name: string, redirectUri: string): Promise<boolean> {
+  // The built-in client is a constant, never a stored document, even one stored under its name.
+  if (name === BUILT_IN_CLIENT_NAME) return redirectListed(BUILT_IN_REDIRECT_URIS, redirectUri);
   const client = hostedClientOf(await store.readClients(), name);
   return client !== null && redirectListed(client.redirect_uris, redirectUri);
 }
@@ -351,7 +359,16 @@ export async function authorizeGet(
     scopes,
     resource: publicUrl
   };
-  return renderApproval(deps, request, hosted ?? nameSlug(new URL(clientId).host));
+  // The built-in client is shared by every agent that runs duoduo-tether, so
+  // its name says nothing about this connection: the field starts empty, or
+  // with the name the command line asked for, and the owner decides.
+  const prefill =
+    hosted === BUILT_IN_CLIENT_NAME
+      ? typeof query.name === "string"
+        ? query.name
+        : ""
+      : (hosted ?? nameSlug(new URL(clientId).host));
+  return renderApproval(deps, request, prefill);
 }
 
 async function verifyAssertion(

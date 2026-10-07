@@ -18,8 +18,7 @@ const banner = [
 
 await rm("dist", { recursive: true, force: true });
 
-await build({
-  entryPoints: ["src/main.ts"],
+const common = {
   bundle: true,
   platform: "node",
   format: "esm",
@@ -27,6 +26,10 @@ await build({
   minify: true,
   legalComments: "none",
   logLevel: "info",
-  banner: { js: banner },
-  outfile: "dist/plugin.js"
-});
+  banner: { js: banner }
+};
+
+// Two entry points of one package: the channel duoduo starts, and the
+// duoduo-tether command line a person or an agent runs.
+await build({ ...common, entryPoints: ["src/main.ts"], outfile: "dist/plugin.js" });
+await build({ ...common, entryPoints: ["src/cli/bin.ts"], outfile: "dist/cli.js" });

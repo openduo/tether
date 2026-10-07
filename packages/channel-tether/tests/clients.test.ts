@@ -6,6 +6,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { handleAdmin, type AdminDeps } from "../src/admin";
+import { shadowedClientWarning } from "../src/clients";
 import type { HostedClients } from "../src/store";
 import { renderClientHandoff } from "../src/texts";
 import {
@@ -380,5 +381,93 @@ describe("a hosted document at /authorize", () => {
     });
     expect(token.statusCode).toBe(400);
     expect(await h.store.readGrants()).toEqual({});
+  });
+});
+
+describe("the built-in duoduo-tether client", () => {
+  const BUILT_IN = `${PUBLIC}/clients/duoduo-tether`;
+  const LOOPBACK = "http://127.0.0.1:53682/callback";
+  const prefill = (html: string) => /id="name" name="name" value="([^"]*)"/.exec(html)?.[1];
+
+  it("connects end to end with no client document on the host and no fetch", async () => {
+    const h = await pluginHarness();
+    const { page, verifier } = await openPage(h, BUILT_IN, LOOPBACK);
+    expect(page.statusCode).toBe(200);
+    expect(page.payload).toContain("built into this duoduo");
+    expect(page.payload).not.toMatch(/<span class="claim">/);
+    expect(prefill(page.payload)).toBe("");
+    const approved = await approve(h, challengeOf(page.payload), "claude-code");
+    const location = approvalLocation(approved);
+    expect(`${location?.origin}${location?.pathname}`).toBe(LOOPBACK);
+    const token = await h.app.inject({
+      method: "POST",
+      url: "/token",
+      headers: FORM,
+      payload: form({
+        grant_type: "authorization_code",
+        code: location?.searchParams.get("code") ?? "",
+        redirect_uri: LOOPBACK,
+        client_id: BUILT_IN,
+        code_verifier: verifier,
+        resource: PUBLIC
+      })
+    });
+    expect(token.statusCode, token.payload).toBe(200);
+    const grant = Object.values(await h.store.readGrants())[0];
+    expect(grant).toMatchObject({
+      client_id: BUILT_IN,
+      name: "claude-code",
+      client_name: "duoduo-tether"
+    });
+    expect(h.fetchImpl).toHaveBeenCalledTimes(0);
+    expect(await clientsOf(h)).toBeNull();
+  });
+
+  it("a name parameter only fills the name field in advance", async () => {
+    const h = await pluginHarness();
+    const { challenge } = pkce();
+    const page = await h.app.inject({
+      method: "GET",
+      url: `${authorizeUrl({ challenge, clientId: BUILT_IN, redirectUri: LOOPBACK })}&name=codex`
+    });
+    expect(page.statusCode).toBe(200);
+    expect(prefill(page.payload)).toBe("codex");
+    const approved = await approve(h, challengeOf(page.payload), "muse");
+    expect(approvalLocation(approved)).not.toBeNull();
+  });
+
+  it.each([
+    ["localhost", "http://localhost:53682/callback"],
+    ["another path", "http://127.0.0.1:53682/other"],
+    ["https", "https://127.0.0.1:53682/callback"]
+  ])("refuses %s as its return address before the passkey", async (_label, redirectUri) => {
+    const h = await pluginHarness();
+    const { page } = await openPage(h, BUILT_IN, redirectUri);
+    expect(page.statusCode).toBe(400);
+    expect(page.payload).not.toContain("webauthn-options");
+  });
+
+  it("client add refuses the reserved name and stores nothing", async () => {
+    const h = await pluginHarness();
+    const out = await verb(h, ["add", "duoduo-tether", "--redirect", MUSE_REDIRECT]);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain("duoduo-tether");
+    expect(await clientsOf(h)).toBeNull();
+  });
+
+  it("a stored document under the reserved name is named at boot and never used", async () => {
+    const h = await pluginHarness();
+    const stored: HostedClients = {
+      "duoduo-tether": {
+        name: "duoduo-tether",
+        redirect_uris: ["http://localhost:9/cb"],
+        created_at: "2026-10-01T00:00:00.000Z"
+      }
+    };
+    await h.store.writeClients(stored);
+    expect(shadowedClientWarning(await h.store.readClients())).toContain("duoduo-tether");
+    expect(shadowedClientWarning({})).toBeNull();
+    const { page } = await openPage(h, BUILT_IN, "http://localhost:9/cb");
+    expect(page.statusCode).toBe(400);
   });
 });

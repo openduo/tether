@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { handleAdmin, listenAdmin, runVerbProcess } from "./admin";
 import { isLoopbackHost, listenAddress, parseTetherConfig } from "./config";
 import { socketDaemon } from "./forward";
+import { shadowedClientWarning } from "./clients";
 import { createTetherApp } from "./listener";
 import { Mailroom, socketPull } from "./mail";
 import { Store, type Logger } from "./store";
@@ -76,6 +77,9 @@ async function serve(pluginRoot: string, env: NodeJS.ProcessEnv): Promise<number
   const { config } = configured;
   const store = new Store(path.join(pluginRoot, "state"), log);
   await store.init();
+  // An unreadable file is reported where it is used, not here.
+  const shadowed = shadowedClientWarning(await store.readClients().catch(() => ({})));
+  if (shadowed !== null) log.warn(shadowed);
   const daemon = socketDaemon(socketPath);
   // The Mailroom publishes a mail's resource_updated here; listen streams read it.
   const bus = new InMemoryServerEventBus();

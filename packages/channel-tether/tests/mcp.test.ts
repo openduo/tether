@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 
 import crypto from "node:crypto";
+import { promises as fs } from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SCOPES } from "../src/config";
 import { DaemonUnreachableError } from "../src/forward";
@@ -106,6 +108,15 @@ describe("transport", () => {
       expect(h.daemon).toHaveBeenCalledTimes(0);
     }
   );
+
+  it("an unreadable grants file is 503, not 401: the token was not found to be bad", async () => {
+    const h = await connected();
+    await fs.writeFile(path.join(h.stateDir, "grants.json"), "{ not json");
+    const response = await h.rpc("tools/list");
+    expect(response.status).toBe(503);
+    expect(response.headers["www-authenticate"]).toBeUndefined();
+    expect(response.body?.error).toBe("temporarily_unavailable");
+  });
 
   it("refuses an Origin that is not the public origin; no Origin passes", async () => {
     const h = await connected();

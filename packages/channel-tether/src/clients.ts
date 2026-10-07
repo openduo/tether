@@ -10,16 +10,19 @@
 
 import { SOURCE_NAME_PATTERN } from "@openduo/protocol";
 import type { VerbOutput } from "./admin";
+import { BUILT_IN_CLIENT_NAME } from "./client-contract";
 import type { HostedClient, HostedClients, Store } from "./store";
 import {
   CLIENT_HELP,
   renderClientAdded,
   renderClientExists,
   renderClientName,
+  renderClientReserved,
   renderClientRemoved,
   renderClients,
   renderNoPublicUrl,
   renderNotLoopback,
+  renderShadowedClient,
   renderUnknownClient
 } from "./texts";
 
@@ -99,6 +102,13 @@ export function redirectListed(listed: readonly string[], requested: string): bo
   return listed.some((uri) => isLoopbackRedirect(uri) && portless(uri) === wanted);
 }
 
+/** The start-up warning when clients.json holds a document under the built-in client's name. */
+export function shadowedClientWarning(clients: HostedClients): string | null {
+  return hostedClientOf(clients, BUILT_IN_CLIENT_NAME) === null
+    ? null
+    : renderShadowedClient(BUILT_IN_CLIENT_NAME);
+}
+
 function parseAdd(args: string[]): { name: string; redirects: string[] } | null {
   const [name, ...rest] = args;
   if (name === undefined || name.startsWith("--")) return null;
@@ -127,6 +137,7 @@ export async function runClientAdd(
   const parsed = parseAdd(args);
   if (parsed === null) return refused(CLIENT_HELP);
   if (!SOURCE_NAME_PATTERN.test(parsed.name)) return refused(renderClientName(parsed.name));
+  if (parsed.name === BUILT_IN_CLIENT_NAME) return refused(renderClientReserved(parsed.name));
   const outside = parsed.redirects.find((uri) => !isLoopbackRedirect(uri));
   if (outside !== undefined) return refused(renderNotLoopback(outside));
   const clientId = hostedClientId(publicUrl, parsed.name);

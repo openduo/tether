@@ -219,9 +219,13 @@ export class Store {
    * The grant a presented bearer belongs to, or null. Read from the file on
    * every request, so a revoke is refused on the very next call. A token whose
    * grant names another resource is refused: a changed public URL reconnects
-   * every client.
+   * every client. "unavailable" when the grants could not be read: the token
+   * was not found to be bad, so the caller must not tell the client it is.
    */
-  async authenticate(header: string | undefined, resource: string): Promise<Authenticated | null> {
+  async authenticate(
+    header: string | undefined,
+    resource: string
+  ): Promise<Authenticated | null | "unavailable"> {
     const presented =
       typeof header === "string" && header.startsWith("Bearer ")
         ? header.slice("Bearer ".length).trim()
@@ -235,7 +239,7 @@ export class Store {
       this.log.warn("[tether] could not read grants; refusing the request", {
         error: String(error)
       });
-      return null;
+      return "unavailable";
     }
     let found: Authenticated | null = null;
     for (const grant of Object.values(grants)) {

@@ -572,6 +572,22 @@ export function renderClientName(name: string): string {
   );
 }
 
+export function renderClientReserved(name: string): string {
+  return (
+    `${name} is the client built into every duoduo, for the duoduo-tether command line; a client` +
+    ` document cannot take that name. Nothing was added. Run the same command with another name.`
+  );
+}
+
+/** At start, when clients.json holds a document under the built-in client's name. */
+export function renderShadowedClient(name: string): string {
+  return (
+    `[tether] clients.json holds a client document named ${name}, which is the built-in client's` +
+    ` name; /authorize uses the built-in client and never this document. Remove it with duoduo` +
+    ` channel tether client remove ${name}.`
+  );
+}
+
 export function renderNotLoopback(uri: string): string {
   return (
     `${JSON.stringify(uri)} is not a loopback return address. A client document hosted by this` +
@@ -928,10 +944,14 @@ export function renderCallbackRefused(
 // --- MCP push --------------------------------------------------------------------------------
 
 export const MAILBOX_RESOURCE_DESCRIPTION =
-  "Your mailbox on duoduo. Listen on it with subscriptions/listen to hear when mail arrives.";
+  "Your mailbox on duoduo. Listen on it with subscriptions/listen to hear when mail arrives; read it for the id and sender of each unread mail.";
 
 export const MAILBOX_RESOURCE_TEXT =
-  "You have mail on duoduo when this resource is updated. It holds no mail itself: call ReadMail to read your unread mail.";
+  "Your unread mail on duoduo, id and sender only. Reading this marks nothing read: call ReadMail to read the mail.";
+
+export function renderMailboxUnreachable(): string {
+  return "duoduo did not answer, so your unread mail could not be listed. Nothing was read. Try again shortly.";
+}
 
 export function renderNotYourMailbox(own: string): string {
   return `That is not your mailbox. Nothing was read. Yours is ${own}; resources/list names it.`;

@@ -11,6 +11,7 @@
 
 import { Readable } from "node:stream";
 import type { ServerEventBus } from "@modelcontextprotocol/server";
+import { isRecord } from "@openduo/protocol";
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import type { FetchLike } from "./cimd";
 import { SCOPES, type TetherConfig } from "./config";
@@ -57,6 +58,19 @@ function send(reply: FastifyReply, out: Reply): FastifyReply {
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function isListenRequest(body: unknown): boolean {
+  return isRecord(body) && body.method === "subscriptions/listen";
+}
+
+async function grantStands(store: Store, grantId: string): Promise<boolean> {
+  try {
+    return Object.hasOwn(await store.readGrants(), grantId);
+  } catch {
+    // Unreadable: the reconnect gets 503 and tries again.
+    return false;
+  }
 }
 
 export function createTetherApp(deps: TetherAppDeps): FastifyInstance {
@@ -136,6 +150,14 @@ export function createTetherApp(deps: TetherAppDeps): FastifyInstance {
         .send({ error: "forbidden", message: "Origin is not this server's origin." });
     }
     const auth = await deps.store.authenticate(request.headers.authorization, publicUrl);
+    if (auth === "unavailable") {
+      return reply.code(503).send({
+        error: "temporarily_unavailable",
+        error_description:
+          "duoduo could not read its connections, so this token was not checked. Nothing was done." +
+          " Try again; if this repeats, the owner checks the duoduo host."
+      });
+    }
     if (auth === null) {
       return reply
         .code(401)
@@ -150,12 +172,19 @@ export function createTetherApp(deps: TetherAppDeps): FastifyInstance {
     // The response closing early means the client went away: end its stream.
     const gone = new AbortController();
     reply.raw.on("close", () => gone.abort());
+    // A listen also ends when its grant does (revoked or replaced): the stream
+    // would otherwise stay open on a token that no longer works, and never ring.
+    const listen = isListenRequest(request.body);
+    if (listen) reply.raw.on("close", deps.mail.holdListen(auth.grant.grant_id, gone));
     const out = await handleMcpPost(
       mcpEndpoint,
       auth,
       { headers: request.headers, body: request.body },
       gone.signal
     );
+    // A grant that ended after authentication but before the hold was taken
+    // was not in the registry when it ended; the hold comes first, so this read sees it.
+    if (listen && !(await grantStands(deps.store, auth.grant.grant_id))) gone.abort();
     reply.code(out.status).headers(out.headers);
     return "stream" in out
       ? reply.send(Readable.fromWeb(out.stream as never))

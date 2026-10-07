@@ -16,6 +16,10 @@ its local unix socket; the daemon does not know tether exists.
 | `/revoke`                                      | POST      | Token revocation (RFC 7009)                                        |
 | `/enroll`, `/enroll/options`, `/enroll/finish` | GET, POST | One-time passkey enrollment for the owner                          |
 
+`/mcp` answers 401 to a token it does not find (missing, revoked, replaced, or issued under another
+public URL), and 503 when it cannot read its grants: then the token was not checked, and the client
+tries again.
+
 Until `ALADUO_TETHER_PUBLIC_URL` is set, no OAuth or MCP route is served. Nothing else is served:
 there are no cookies, and no route reads one.
 
@@ -44,6 +48,26 @@ An assistant whose client has no document of its own can be given one that the d
 locally (nothing is served for it; `/authorize` reads it from the host's state):
 `duoduo channel tether client add <name> --redirect <uri>`. Its return addresses are loopback
 `http` addresses and are checked by the same rule: any port, everything else exact.
+
+### The built-in client
+
+Every tether host carries one client document of its own, for the `duoduo-tether` command line
+(see [cli.md](cli.md)). It is a constant of the channel: not a file, not served over HTTP, and
+`/authorize` resolves it locally like a hosted document, so it needs no host configuration.
+
+| Field                        | Value                                  |
+| ---------------------------- | -------------------------------------- |
+| `client_id`                  | `<public url>/clients/duoduo-tether`   |
+| `client_name`                | `duoduo-tether`                        |
+| `redirect_uris`              | `http://127.0.0.1/callback` (any port) |
+| `token_endpoint_auth_method` | `none` (PKCE only)                     |
+
+The authorize page marks it as built into this duoduo. Every agent that runs `duoduo-tether` shares
+this one client, so the page's name field starts empty rather than with the client's name: an
+authorization request for this client may carry a `name` parameter, which only fills the field in
+advance, and the owner's entry is what counts. The name `duoduo-tether` is reserved:
+`duoduo channel tether client add` refuses it, and a document stored under it by an earlier version
+is never used; the channel names it in its log at start.
 
 ### Scopes
 
@@ -101,7 +125,11 @@ in full; a tool call only as its name and whether it succeeded; job and internal
 Three ways, all carrying no mail content; the assistant then calls `ReadMail`:
 
 - **Push** (2026-07-28 clients): `subscriptions/listen` on the resource `duoduo://mailbox/<grant>`
-  holds an event stream open and sends `notifications/resources/updated` per mail.
+  holds an event stream open and sends `notifications/resources/updated` per mail. `resources/read`
+  of that resource (`application/json`, `{"unread": [{"id", "from"}], "note"}`) lists the unread
+  mail as id and sender only, exactly the mail `ReadMail` with no argument would return, and
+  acknowledges nothing. When a connection is revoked (by the owner or at `/revoke`) or replaced by
+  a new approval, its open listen streams end.
 - **MCP Events**: an event subscription with a callback URL; one signed delivery per mail.
 - **Doorbells**: the operator registers an HTTPS endpoint per assistant
   (`duoduo channel tether doorbell add <name> --url <url> --auth hmac|bearer`); one POST per mail,

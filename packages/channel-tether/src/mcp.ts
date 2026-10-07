@@ -73,12 +73,14 @@ import {
   renderNotifyKind,
   renderNoReplyAddress,
   renderNotYourMail,
+  renderMailboxUnreachable,
   renderNotYourMailbox,
   renderRevokedMidCall,
   renderSelfMail,
   renderUnreachable,
   TOOL_DESCRIPTIONS
 } from "./texts";
+import { LISTEN_KEEP_ALIVE_MS } from "./client-contract";
 
 // --- schemas ------------------------------------------------------------------------
 
@@ -300,7 +302,7 @@ export type McpDeps = {
   postCallback?: CallbackPost;
   /** The Mailroom publishes to it; listen streams read it. */
   bus: ServerEventBus;
-  mail: Pick<Mailroom, "readUnread" | "unreadMailId">;
+  mail: Pick<Mailroom, "readUnread" | "unreadMailId" | "unreadSummary">;
 };
 
 function textResult(body: string, structured: Record<string, unknown>): CallToolResult {
@@ -1097,15 +1099,33 @@ function serverFor(deps: McpDeps, auth: Authenticated, era: "legacy" | "modern")
     const uri = mailboxUri(auth.grant.grant_id);
     server.setRequestHandler("resources/list", async () => ({
       resources: [
-        { uri, name: "mailbox", description: MAILBOX_RESOURCE_DESCRIPTION, mimeType: "text/plain" }
+        {
+          uri,
+          name: "mailbox",
+          description: MAILBOX_RESOURCE_DESCRIPTION,
+          mimeType: "application/json"
+        }
       ]
     }));
-    // Content-free, like a ring: no kernel call, so no cursor moves and no read is recorded.
+    // Ids and senders only, and nothing acknowledged: no cursor moves and no read is recorded.
+    // A listener reads it to report mail that arrived while no stream was open.
     server.setRequestHandler("resources/read", async (read) => {
       if (read.params.uri !== uri) {
         throw new ProtocolError(ProtocolErrorCode.InvalidParams, renderNotYourMailbox(uri));
       }
-      return { contents: [{ uri, mimeType: "text/plain", text: MAILBOX_RESOURCE_TEXT }] };
+      const unread = await deps.mail.unreadSummary(auth.grant);
+      if (unread === null) {
+        throw new ProtocolError(ProtocolErrorCode.InternalError, renderMailboxUnreachable());
+      }
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: "application/json",
+            text: JSON.stringify({ unread, note: MAILBOX_RESOURCE_TEXT })
+          }
+        ]
+      };
     });
   }
   return server;
@@ -1126,7 +1146,7 @@ export function createMcpEndpoint(deps: McpDeps): McpEndpoint {
     deps,
     modern: createMcpHandler(
       ({ authInfo, era }) => serverFor(deps, (authInfo as TetherAuthInfo).extra.auth, era),
-      { legacy: "reject", bus: deps.bus }
+      { legacy: "reject", bus: deps.bus, keepAliveMs: LISTEN_KEEP_ALIVE_MS }
     )
   };
 }

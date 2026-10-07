@@ -5,7 +5,20 @@ import type { ServerEventBus } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createMcpEndpoint, handleMcpPost } from "../src/mcp";
 import { mailboxUri } from "../src/mail";
-import { cleanupDirs, connect, grantNamed, pluginHarness, PUBLIC } from "./helpers";
+import { runRevoke } from "../src/admin";
+import { LISTEN_KEEP_ALIVE_MS } from "../src/client-contract";
+import type { MailRecord } from "../src/mail";
+import {
+  cleanupDirs,
+  connect,
+  fakeDaemon,
+  fakeOutbox,
+  FORM,
+  form,
+  grantNamed,
+  pluginHarness,
+  PUBLIC
+} from "./helpers";
 import { listenLoopback } from "./loopback";
 
 // Push on the assistant's own MCP connection, over the channel's loopback port.
@@ -77,8 +90,8 @@ function messages(sse: string): Json[] {
     .map((line) => JSON.parse(line.slice("data: ".length)) as Json);
 }
 
-async function setup(scope?: string) {
-  const h = await pluginHarness();
+async function setup(scope?: string, options: Parameters<typeof pluginHarness>[0] = {}) {
+  const h = await pluginHarness(options);
   await h.app.ready();
   const { accessToken } = await connect(h.app, h.authenticator, {
     name: "dots",
@@ -99,11 +112,11 @@ async function setup(scope?: string) {
       path: "/mcp",
       ...modernRequest(accessToken, ++id, method, params, name)
     });
-  return { h, grantId, open, call, uri: mailboxUri(grantId) };
+  return { h, grantId, open, call, accessToken, uri: mailboxUri(grantId) };
 }
 
 describe("the mailbox resource", () => {
-  it("resources/list shows the caller its own mailbox; resources/read is content-free", async () => {
+  it("resources/list shows the caller its own mailbox; resources/read acknowledges nothing", async () => {
     const { h, call, uri } = await setup();
     const listed = JSON.parse((await call("resources/list")).body) as {
       result: { resources: Json[] };
@@ -114,10 +127,12 @@ describe("the mailbox resource", () => {
       result: { contents: Json[] };
     };
     expect(read.result.contents).toEqual([
-      { uri, mimeType: "text/plain", text: expect.any(String) }
+      { uri, mimeType: "application/json", text: expect.any(String) }
     ]);
-    // No kernel call: no cursor moves, no read time is recorded.
-    expect(h.daemon.mock.calls.length).toBe(before);
+    // Nothing acknowledged: no cursor moves, no read time is recorded.
+    expect(
+      h.daemon.mock.calls.slice(before).filter(([method]) => method === "channel.ack")
+    ).toEqual([]);
   });
 
   it("resources/read of another grant's mailbox is refused", async () => {
@@ -247,5 +262,134 @@ describe("request headers into the SDK", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     const seen = [...(fetch.mock.calls[0][0] as Request).headers.keys()].sort();
     expect(seen).toEqual(["accept", "content-type", "mcp-method", "mcp-protocol-version"]);
+  });
+});
+
+const OWNER = "lark:oc_owner:abc";
+const INBOX = "tether:dots";
+
+function mailRecord(id: string, ts: string, from = OWNER): MailRecord {
+  return {
+    id: `out_${id}`,
+    created_at: ts,
+    payload: {
+      text: `text of ${id}`,
+      data: { event_id: id, event_ts: ts, source_session_key: from }
+    }
+  };
+}
+
+/** A plugin whose duoduo keeps assistant outboxes, approving at 07:30 on 2026-10-04. */
+async function mailSetup() {
+  const outbox = fakeOutbox();
+  const daemon = await fakeDaemon({ override: outbox.override });
+  const clock = { at: Date.parse("2026-10-04T07:30:00.000Z") };
+  const setUp = await setup(undefined, { daemon, now: () => new Date(clock.at) });
+  return { ...setUp, outbox, clock };
+}
+
+describe("the mailbox resource lists unread mail (id and sender)", () => {
+  it("lists exactly what ReadMail would return, and acknowledges nothing", async () => {
+    const { h, call, uri, outbox } = await mailSetup();
+    outbox.add(
+      INBOX,
+      mailRecord("evt_early", "2026-10-04T07:00:00.000Z"),
+      mailRecord("evt_job", "2026-10-04T08:00:00.000Z", "job:nightly"),
+      mailRecord("evt_ok", "2026-10-04T09:00:00.000Z"),
+      mailRecord("evt_peer", "2026-10-04T09:30:00.000Z", "tether:muse")
+    );
+    const read = JSON.parse((await call("resources/read", { uri }, uri)).body) as {
+      result: { contents: Array<{ uri: string; mimeType: string; text: string }> };
+    };
+    expect(read.result.contents).toHaveLength(1);
+    expect(read.result.contents[0]).toMatchObject({ uri, mimeType: "application/json" });
+    const listed = (JSON.parse(read.result.contents[0].text) as { unread: unknown[] }).unread;
+    expect(listed).toEqual([
+      { id: "evt_ok@2026-10-04", from: OWNER },
+      { id: "evt_peer@2026-10-04", from: "tether:muse" }
+    ]);
+    expect(h.daemon.mock.calls.filter(([method]) => method === "channel.ack")).toEqual([]);
+    expect(outbox.unread(INBOX)).toHaveLength(4);
+    const mail = JSON.parse(
+      (await call("tools/call", { name: "ReadMail", arguments: {} }, "ReadMail")).body
+    ) as {
+      result: { structuredContent: { mails: Array<{ id: string; from: string }> } };
+    };
+    expect(mail.result.structuredContent.mails.map(({ id, from }) => ({ id, from }))).toEqual(
+      listed
+    );
+  });
+});
+
+describe("a listen stream ends when its grant ends", () => {
+  async function listening() {
+    const setUp = await setup();
+    const listen = await setUp.call("subscriptions/listen", listenParams(setUp.uri));
+    await vi.waitFor(() => expect(setUp.open()).toBe(1));
+    return { ...setUp, stream: listen.stream! };
+  }
+
+  it("the assistant revoking its token at /revoke ends its open listen", async () => {
+    const { h, accessToken, stream, open } = await listening();
+    const grant = grantNamed(await h.store.readGrants(), "dots");
+    const revoked = await h.app.inject({
+      method: "POST",
+      url: "/revoke",
+      headers: FORM,
+      payload: form({ token: accessToken, client_id: grant.client_id })
+    });
+    expect(revoked.statusCode).toBe(200);
+    await vi.waitFor(() => expect(stream.ended).not.toBeNull());
+    await vi.waitFor(() => expect(open()).toBe(0));
+  });
+
+  it("the owner revoking the connection ends its open listen", async () => {
+    const { h, stream, open } = await listening();
+    const out = await runRevoke(
+      { store: h.store, config: h.config, daemon: h.daemon, mail: h.mail },
+      "dots"
+    );
+    expect(out.exitCode).toBe(0);
+    await vi.waitFor(() => expect(stream.ended).not.toBeNull());
+    await vi.waitFor(() => expect(open()).toBe(0));
+  });
+
+  it("a new approval that replaces the grant ends the old grant's listen", async () => {
+    const { h, stream, open } = await listening();
+    await connect(h.app, h.authenticator, { name: "dots" });
+    await vi.waitFor(() => expect(stream.ended).not.toBeNull());
+    await vi.waitFor(() => expect(open()).toBe(0));
+  });
+
+  it("another grant's listen stays open", async () => {
+    const { h, stream } = await listening();
+    await connect(h.app, h.authenticator, { name: "muse" });
+    await runRevoke({ store: h.store, config: h.config, daemon: h.daemon, mail: h.mail }, "muse");
+    // Fence on a later frame of this same stream: a keep-alive-free check that it is still read.
+    h.bus.publish({
+      kind: "resource_updated",
+      uri: mailboxUri(grantNamed(await h.store.readGrants(), "dots").grant_id)
+    });
+    await vi.waitFor(() => expect(messages(stream.data)).toHaveLength(2));
+    expect(stream.ended).toBeNull();
+  });
+});
+
+describe("the listen keep-alive", () => {
+  it("is pinned at 15 s: duoduo-tether's idle timeout is derived from it", async () => {
+    expect(LISTEN_KEEP_ALIVE_MS).toBe(15_000);
+    const { call, uri } = await setup();
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const listen = await call("subscriptions/listen", listenParams(uri));
+      const stream = listen.stream!;
+      await vi.waitFor(() => expect(messages(stream.data)).toHaveLength(1));
+      vi.advanceTimersByTime(LISTEN_KEEP_ALIVE_MS - 1);
+      expect(stream.data).not.toContain(": keepalive");
+      vi.advanceTimersByTime(1);
+      await vi.waitFor(() => expect(stream.data).toContain(": keepalive"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

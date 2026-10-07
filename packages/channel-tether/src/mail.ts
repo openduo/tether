@@ -26,6 +26,7 @@ import { DaemonUnreachableError, type DaemonCall } from "./forward";
 import { postCallback, type CallbackLimits, type CallbackPost } from "./callback";
 import type { Doorbell, Grant, Logger, Store, Subscription } from "./store";
 import { renderBounce, renderJobBounce } from "./texts";
+import { mailboxUri } from "./client-contract";
 
 /** The one consumer of every assistant session's outbox. */
 export const TETHER_CONSUMER_ID = "tether-plugin";
@@ -45,9 +46,7 @@ export function tetherChannelId(name: string): string {
 }
 
 /** The grant's mailbox resource, the URI a listen stream subscribes to. */
-export function mailboxUri(grantId: string): string {
-  return `duoduo://mailbox/${grantId}`;
-}
+export { mailboxUri };
 
 /** The one event an assistant can subscribe to. */
 export const MAILBOX_EVENT = "mailbox.new";
@@ -158,6 +157,14 @@ export function ownedBy(grant: Grant, record: MailRecord): boolean {
 
 export function isJobSender(from: string): boolean {
   return from.startsWith("job:");
+}
+
+/**
+ * Mail ReadMail returns to this grant; anything else is bounced. The mailbox
+ * resource lists by the same test, so listen never reports mail ReadMail would not show.
+ */
+export function readableBy(grant: Grant, record: MailRecord): boolean {
+  return !isJobSender(senderOf(record)) && ownedBy(grant, record);
 }
 
 /**
@@ -327,6 +334,8 @@ type StreamEntry = { stream: PullStream | null; timer: NodeJS.Timeout | null };
 export class Mailroom {
   private running = false;
   private readonly streams = new Map<string, StreamEntry>();
+  /** Open listen requests per grant, ended when the grant ends. */
+  private readonly listens = new Map<string, Set<AbortController>>();
 
   constructor(private readonly deps: MailroomDeps) {}
 
@@ -419,10 +428,36 @@ export class Mailroom {
    * it. Returns how many steps duoduo did not answer or refused.
    */
   async approved(grant: Grant): Promise<number> {
+    const grants = await this.deps.store.readGrants();
+    // A grant this approval replaced is gone from the file; its token no longer works.
+    this.endListens((grantId) => !Object.hasOwn(grants, grantId));
     let failed = (await this.spawn(grant.name)) ? 0 : 1;
     failed += await this.settle(grant.name, grant);
     this.reconcile(Object.values(await this.deps.store.readGrants()));
     return failed;
+  }
+
+  /**
+   * Holds an open listen request of `grantId` until the returned release runs;
+   * the grant ending aborts `request`, which ends the stream.
+   */
+  holdListen(grantId: string, request: AbortController): () => void {
+    const held = this.listens.get(grantId) ?? new Set<AbortController>();
+    held.add(request);
+    this.listens.set(grantId, held);
+    return () => {
+      held.delete(request);
+      if (held.size === 0 && this.listens.get(grantId) === held) this.listens.delete(grantId);
+    };
+  }
+
+  /** Ends the open listens of every grant `ended` picks. */
+  private endListens(ended: (grantId: string) => boolean): void {
+    for (const [grantId, held] of [...this.listens]) {
+      if (!ended(grantId)) continue;
+      this.listens.delete(grantId);
+      for (const request of held) request.abort();
+    }
   }
 
   /**
@@ -431,6 +466,7 @@ export class Mailroom {
    * duoduo did not answer or refused; the next start finishes them.
    */
   async revoked(grant: Grant): Promise<number> {
+    this.endListens((grantId) => grantId === grant.grant_id);
     this.close(grant.name);
     return this.settle(grant.name, undefined);
   }
@@ -489,7 +525,7 @@ export class Mailroom {
     // The ack is cumulative: nothing past a bounce duoduo did not take is
     // acknowledged, so the next ReadMail bounces it again.
     for (const record of records) {
-      if (isJobSender(senderOf(record)) || !ownedBy(grant, record)) {
+      if (!readableBy(grant, record)) {
         if (!(await this.bounce(grant.name, record))) break;
       } else {
         mails.push(mailOf(record));
@@ -498,6 +534,18 @@ export class Mailroom {
     }
     if (last !== undefined && !(await this.ack(grant.name, last.id))) return null;
     return mails;
+  }
+
+  /**
+   * The unread mail ReadMail would return, as id and sender, acknowledging
+   * nothing and bouncing nothing. Null when duoduo did not answer.
+   */
+  async unreadSummary(grant: Grant): Promise<Array<{ id: string; from: string }> | null> {
+    const records = await this.pullAll(grant.name);
+    if (records === null) return null;
+    return records
+      .filter((record) => readableBy(grant, record))
+      .map((record) => ({ id: mailIdOf(record), from: senderOf(record) }));
   }
 
   /**
