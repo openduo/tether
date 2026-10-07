@@ -80,6 +80,25 @@ export function isLoopbackRedirect(uri: string): boolean {
   }
 }
 
+/**
+ * Whether a client document listing `listed` accepts `requested`. RFC 8252
+ * section 7.3: a loopback redirect may use any port, since a native app binds
+ * whatever port is free at login; so for http on a loopback host the port is
+ * ignored on both sides and everything else must match. Hosts compare
+ * literally: localhost is not 127.0.0.1. Any other address matches exactly.
+ */
+export function redirectListed(listed: readonly string[], requested: string): boolean {
+  if (listed.includes(requested)) return true;
+  if (!isLoopbackRedirect(requested)) return false;
+  const portless = (uri: string): string => {
+    const parsed = new URL(uri);
+    parsed.port = "";
+    return parsed.href;
+  };
+  const wanted = portless(requested);
+  return listed.some((uri) => isLoopbackRedirect(uri) && portless(uri) === wanted);
+}
+
 function parseAdd(args: string[]): { name: string; redirects: string[] } | null {
   const [name, ...rest] = args;
   if (name === undefined || name.startsWith("--")) return null;

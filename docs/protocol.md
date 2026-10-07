@@ -29,7 +29,11 @@ there are no cookies, and no route reads one.
   token on PKCE alone.
 - Every authorization needs the owner's passkey on the authorize page. The page shows the client
   document URL and the return address, marked not yet verified. Only after the passkey does the
-  channel fetch the client document and check the return address against it.
+  channel fetch the client document and check the return address against it. The check is exact,
+  except for an `http` return address on `127.0.0.1`, `[::1]` or `localhost`: there any port is
+  accepted, as RFC 8252 section 7.3 requires for native apps, and scheme, host, path and query
+  still match exactly (`localhost` does not match `127.0.0.1`). The token request must send the
+  return address of its authorization request exactly, port included.
 - The owner names each connection (lowercase letters, digits and `-`). The name is how duoduo knows
   the assistant: its session is `tether:<name>`, and its records carry that name as their source.
 - Tokens do not expire. A connection ends when the owner revokes it
@@ -38,7 +42,8 @@ there are no cookies, and no route reads one.
 
 An assistant whose client has no document of its own can be given one that the duoduo host keeps
 locally (nothing is served for it; `/authorize` reads it from the host's state):
-`duoduo channel tether client add <name> --redirect <uri>`.
+`duoduo channel tether client add <name> --redirect <uri>`. Its return addresses are loopback
+`http` addresses and are checked by the same rule: any port, everything else exact.
 
 ### Scopes
 

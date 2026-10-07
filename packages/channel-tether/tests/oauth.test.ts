@@ -626,6 +626,119 @@ describe("any https client, fetched only after the passkey", () => {
   });
 });
 
+describe("loopback return addresses (RFC 8252 section 7.3)", () => {
+  // Claude Code's real client document: loopback callbacks with no port; the CLI
+  // listens on a random port per login.
+  const CLAUDE_CODE = "https://claude.ai/oauth/claude-code-client-metadata";
+  const OTHER = "https://app.example.com/client.json";
+  const documents = {
+    [CLAUDE_CODE]: {
+      client_id: CLAUDE_CODE,
+      client_name: "Claude Code",
+      redirect_uris: ["http://localhost/callback", "http://127.0.0.1/callback"]
+    },
+    [OTHER]: {
+      client_id: OTHER,
+      client_name: "Other",
+      redirect_uris: ["https://app.example.com:8443/cb", "http://app.example.com/cb"]
+    }
+  };
+
+  async function approveWith(h: Harness, clientId: string, redirectUri: string) {
+    const { page, verifier } = await openPage(h, { clientId, redirectUri });
+    expect(page.statusCode).toBe(200);
+    const challenge = challengeOf(page.payload);
+    const approved = await submit(h, challenge, {
+      name: "code",
+      assertion: assertionFor(h, challenge)
+    });
+    return { approved, verifier };
+  }
+
+  it.each(["http://localhost:60793/callback", "http://127.0.0.1:60793/callback"])(
+    "a port-less loopback document accepts %s and the exchange completes",
+    async (redirectUri) => {
+      const h = await pluginHarness({ fetchImpl: fakeCimd(documents) });
+      const { approved, verifier } = await approveWith(h, CLAUDE_CODE, redirectUri);
+      expect(approved.statusCode, approved.payload).toBe(302);
+      const location = new URL(String(approved.headers.location));
+      expect(`${location.origin}${location.pathname}`).toBe(redirectUri);
+      const token = await h.app.inject({
+        method: "POST",
+        url: "/token",
+        headers: FORM,
+        payload: form({
+          grant_type: "authorization_code",
+          code: location.searchParams.get("code") ?? "",
+          redirect_uri: redirectUri,
+          client_id: CLAUDE_CODE,
+          code_verifier: verifier,
+          resource: PUBLIC
+        })
+      });
+      expect(token.statusCode, token.payload).toBe(200);
+    }
+  );
+
+  it.each([
+    ["another path", CLAUDE_CODE, "http://localhost:60793/other"],
+    ["another loopback host", CLAUDE_CODE, "http://[::1]:60793/callback"],
+    ["a query", CLAUDE_CODE, "http://localhost:60793/callback?x=1"],
+    ["https on loopback", CLAUDE_CODE, "https://localhost:60793/callback"],
+    ["another port on a non-loopback https host", OTHER, "https://app.example.com:9443/cb"],
+    ["a port on a non-loopback http host", OTHER, "http://app.example.com:8080/cb"]
+  ])("%s is refused after the passkey, never followed", async (_label, clientId, redirectUri) => {
+    const h = await pluginHarness({ fetchImpl: fakeCimd(documents) });
+    const { approved } = await approveWith(h, clientId, redirectUri);
+    expect(approved.statusCode).toBe(200);
+    expect(approved.headers.location).toBeUndefined();
+    expect(approved.payload).toContain('class="reason"');
+    expect(await grantsOf(h)).toBeNull();
+  });
+
+  it("localhost and 127.0.0.1 are distinct hosts: neither stands in for the other", async () => {
+    const h = await pluginHarness({
+      fetchImpl: fakeCimd({
+        [CLAUDE_CODE]: { client_id: CLAUDE_CODE, redirect_uris: ["http://localhost/callback"] }
+      })
+    });
+    const { approved } = await approveWith(h, CLAUDE_CODE, "http://127.0.0.1:60793/callback");
+    expect(approved.statusCode).toBe(200);
+    expect(approved.headers.location).toBeUndefined();
+    expect(await grantsOf(h)).toBeNull();
+  });
+
+  it.each(["http://localhost:50000/callback", "http://localhost/callback"])(
+    "the exchange still needs the exact redirect_uri the authorization used, not %s",
+    async (sent) => {
+      const h = await pluginHarness({ fetchImpl: fakeCimd(documents) });
+      const { approved, verifier } = await approveWith(
+        h,
+        CLAUDE_CODE,
+        "http://localhost:60793/callback"
+      );
+      const location = new URL(String(approved.headers.location));
+      const token = await h.app.inject({
+        method: "POST",
+        url: "/token",
+        headers: FORM,
+        payload: form({
+          grant_type: "authorization_code",
+          code: location.searchParams.get("code") ?? "",
+          redirect_uri: sent,
+          client_id: CLAUDE_CODE,
+          code_verifier: verifier,
+          resource: PUBLIC
+        })
+      });
+      const body = JSON.parse(token.payload);
+      expect(body.error).toBe("invalid_grant");
+      expect(body.error_description).toContain("redirect_uri");
+      expect(await grantsOf(h)).toBeNull();
+    }
+  );
+});
+
 describe("POST /token", () => {
   it("answers a Bearer token with no expires_in and no refresh_token, and stores only its digest", async () => {
     const h = await pluginHarness();

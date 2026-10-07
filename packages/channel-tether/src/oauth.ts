@@ -29,7 +29,7 @@ import {
   type ClientAuth,
   type FetchLike
 } from "./cimd";
-import { hostedClientOf, hostedNameOf } from "./clients";
+import { hostedClientOf, hostedNameOf, redirectListed } from "./clients";
 import { RESERVED_TETHER_NAMES, SCOPES, type TetherConfig, type Scope } from "./config";
 import { DaemonUnreachableError, type DaemonCall } from "./forward";
 import { authorizePage, errorPage, nameSlug, replacedPage } from "./pages";
@@ -276,7 +276,7 @@ function cannotConnect(description: string): Reply {
  */
 async function hostedAccepts(store: Store, name: string, redirectUri: string): Promise<boolean> {
   const client = hostedClientOf(await store.readClients(), name);
-  return client !== null && client.redirect_uris.includes(redirectUri);
+  return client !== null && redirectListed(client.redirect_uris, redirectUri);
 }
 
 function isUrl(value: string): boolean {
@@ -461,7 +461,7 @@ export async function authorizePost(
           `The app's client document was refused: ${metadata.problem}. Nothing was approved.`
         );
       }
-      if (!metadata.client.redirectUris.includes(request.redirectUri)) {
+      if (!redirectListed(metadata.client.redirectUris, request.redirectUri)) {
         return renderApproval(
           deps,
           request,

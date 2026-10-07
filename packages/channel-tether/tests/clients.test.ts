@@ -235,7 +235,7 @@ describe("a hosted document at /authorize", () => {
     ["a query", `${PUBLIC}/clients/muse?x=1`, MUSE_REDIRECT],
     ["a case variant of the origin", "https://TETHER.example.com/clients/muse", MUSE_REDIRECT],
     ["a prototype key", `${PUBLIC}/clients/constructor`, MUSE_REDIRECT],
-    ["a redirect it does not list", MUSE, "http://127.0.0.1:9999/callback"]
+    ["a redirect it does not list", MUSE, "http://127.0.0.1:8976/other"]
   ])(
     "refuses %s before the passkey with a page, minting and fetching nothing",
     async (_label, clientId, redirectUri) => {
@@ -249,11 +249,28 @@ describe("a hosted document at /authorize", () => {
     }
   );
 
+  it.each([
+    ["a port", MUSE_REDIRECT, "http://127.0.0.1:9999/callback"],
+    ["no port", "http://127.0.0.1/callback", "http://127.0.0.1:60793/callback"]
+  ])(
+    "a loopback redirect listed with %s accepts any port (RFC 8252 section 7.3)",
+    async (_label, listed, requested) => {
+      const h = await pluginHarness();
+      await verb(h, ["add", "muse", "--redirect", listed]);
+      const { page } = await openPage(h, MUSE, requested);
+      expect(page.statusCode).toBe(200);
+      const approved = await approve(h, challengeOf(page.payload), "muse");
+      const location = approvalLocation(approved);
+      expect(location).not.toBeNull();
+      expect(`${location?.origin}${location?.pathname}`).toBe(requested);
+    }
+  );
+
   it("an unknown name and an unlisted return address get the identical page, so names cannot be enumerated", async () => {
     const h = await pluginHarness();
     await verb(h, ["add", "muse", "--redirect", MUSE_REDIRECT]);
     const unknown = await openPage(h, `${PUBLIC}/clients/nobody`, MUSE_REDIRECT);
-    const unlisted = await openPage(h, MUSE, "http://127.0.0.1:9999/callback");
+    const unlisted = await openPage(h, MUSE, "http://127.0.0.1:8976/other");
     expect(unknown.page.statusCode).toBe(400);
     expect(unlisted.page.statusCode).toBe(400);
     expect(unlisted.page.payload).toBe(unknown.page.payload);

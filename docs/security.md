@@ -27,7 +27,9 @@ loopback by default (`ALADUO_TETHER_HOST` names another IP literal). This page s
   issued only from a terminal on the host, never from inside a duoduo session: the session's output
   is readable through the event log, which connected assistants can read.
 - **Client documents are fetched only after approval.** Nothing is fetched for a client before the
-  owner's passkey, and the return address is checked against the document after it.
+  owner's passkey, and the return address is checked against the document after it: exactly,
+  except that a loopback `http` address may use any port (RFC 8252 section 7.3). A loopback port
+  reaches only the machine whose browser approved.
 - **Grants are bound to the origin.** A token issued under one public URL is refused under another.
 
 ## What a connected assistant can reach
