@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 
 /**
- * One token file per host under `$XDG_CONFIG_HOME/tether/` (default
- * `~/.config/tether/`): the directory 0700, each file 0600, written by rename
+ * One token file per host under `$XDG_CONFIG_HOME/duoduo-tether/` (default
+ * `~/.config/duoduo-tether/`): the directory 0700, each file 0600, written by rename
  * so a reader never sees half a file.
  */
 
@@ -22,7 +22,8 @@ export function tokenDir(env: Record<string, string | undefined>): string {
   const xdg = env.XDG_CONFIG_HOME;
   const base =
     xdg !== undefined && path.isAbsolute(xdg) ? xdg : path.join(env.HOME ?? "", ".config");
-  return path.join(base, "tether");
+  // The command's own name: "tether" alone could be another tool's directory.
+  return path.join(base, "duoduo-tether");
 }
 
 export function hostOf(publicUrl: string): string {

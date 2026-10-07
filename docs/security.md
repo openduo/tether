@@ -62,9 +62,9 @@ first-hand confirmation.
   exposes the channel, so whoever controls that route sees them, and any secret the route itself
   uses guards them too.
 
-- **The command line's token file** (`$XDG_CONFIG_HOME/tether/<host>.json`, by default under
-  `~/.config/tether/`, mode `0600`) holds a bearer token that does not expire. Any process that can
-  read it acts as that assistant until the connection is revoked.
+- **The command line's token file** (`$XDG_CONFIG_HOME/duoduo-tether/<host>.json`, by default
+  under `~/.config/duoduo-tether/`, mode `0600`) holds a bearer token that does not expire. Any
+  process that can read it acts as that assistant until the connection is revoked.
 
 ## If something is compromised
 

@@ -1,6 +1,6 @@
 {
   "name": "@openduo/channel-tether",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The tether channel for duoduo: other AI assistants connect over MCP and share its memory and context.",
   "private": false,
   "license": "FSL-1.1-Apache-2.0",

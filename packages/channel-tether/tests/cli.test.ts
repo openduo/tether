@@ -190,6 +190,15 @@ describe("login", () => {
     expect(stored.public_url).toBe(PUBLIC);
     expect(stored.grant).toBe(grant.grant_id);
     expect(await fs.readdir(tokenDir(t.io.env))).toEqual([`${HOST}.json`]);
+    expect(file).toBe(path.join(t.home, "xdg", "duoduo-tether", `${HOST}.json`));
+  });
+
+  it("the token directory is duoduo-tether under XDG_CONFIG_HOME, else under ~/.config", () => {
+    expect(tokenDir({ HOME: "/home/a", XDG_CONFIG_HOME: "/x" })).toBe("/x/duoduo-tether");
+    expect(tokenDir({ HOME: "/home/a" })).toBe("/home/a/.config/duoduo-tether");
+    expect(tokenDir({ HOME: "/home/a", XDG_CONFIG_HOME: "relative" })).toBe(
+      "/home/a/.config/duoduo-tether"
+    );
   });
 
   it("takes the address pasted on standard input, approved on another device", async () => {

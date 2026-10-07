@@ -54,8 +54,8 @@ it (the page says so after the passkey), another name adds a second connection.
 
 ## The token file
 
-One file per host: `$XDG_CONFIG_HOME/tether/<host>.json`, with `XDG_CONFIG_HOME` defaulting to
-`~/.config`. The file is mode `0600`, written to a temporary file and renamed into place; the
+One file per host: `$XDG_CONFIG_HOME/duoduo-tether/<host>.json`, with `XDG_CONFIG_HOME`
+defaulting to `~/.config`. The file is mode `0600`, written to a temporary file and renamed into place; the
 directory is mode `0700`. `<host>` is the public URL's host name. Two agents of one OS user hold
 separate connections to one host by running with different `XDG_CONFIG_HOME` values.
 
