@@ -5,8 +5,7 @@
  * Every text the tether channel renders. Each one is read by a model deciding
  * what to do next (a connected assistant, or the host's own agent), so each
  * says what happened, whether anything landed, and the next step. Texts an
- * assistant reads name "this duoduo", never the hostname. Their wording is
- * read on a bench against a real model, not pinned by string matching.
+ * assistant reads name "this duoduo", never the hostname.
  */
 
 import { INTERNAL_SOURCE_KINDS } from "@openduo/protocol";
@@ -15,8 +14,7 @@ import { RESERVED_TETHER_NAMES, type Scope } from "./config";
 /**
  * The per-turn usage contract of a connected assistant. One text in three
  * places: the MCP `initialize` instructions, the GetContext and
- * RecordExperience descriptions, and the GetContext text. A prompt: read it
- * whole where it is assembled, never pin its wording in a test.
+ * RecordExperience descriptions, and the GetContext text.
  */
 export const TETHER_MCP_TURN_CONTRACT = [
   "For each user message you answer as one of duoduo's connected assistants:",
@@ -352,8 +350,7 @@ export function renderMailSent(
 /**
  * An assistant's mail as the receiving session reads it: the relay rule, how
  * to answer, and the mail. duoduo adds no text of its own about assistants;
- * this whole text is the notify content. A prompt: read on a bench, never
- * pinned by string matching.
+ * this whole text is the notify content.
  */
 export function renderMailToSession(input: {
   name: string;

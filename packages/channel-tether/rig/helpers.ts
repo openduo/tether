@@ -38,13 +38,12 @@ import {
 export type Json = any;
 
 export const ACCEPT = "application/json, text/event-stream";
-const WHERE = "the rig notes in .agents/environments/tether-rig.md";
 
 export function rigRuntimeDir(): string {
   const dir = process.env.TETHER_RIG_RUNTIME_DIR?.trim();
   if (!dir) {
     throw new Error(
-      `TETHER_RIG_RUNTIME_DIR is not set: point it at the rig daemon's runtime dir (see ${WHERE}).`
+      "TETHER_RIG_RUNTIME_DIR is not set: point it at the runtime directory of a local duoduo daemon used as the rig."
     );
   }
   return dir;
@@ -68,7 +67,7 @@ export async function requireRig(): Promise<void> {
   });
   if (!answer.includes('"ok"')) {
     throw new Error(
-      `The rig daemon at ${socketPath} (TETHER_RIG_RUNTIME_DIR) did not answer /healthz ok (${answer}); start it per ${WHERE}.`
+      `The rig daemon at ${socketPath} (TETHER_RIG_RUNTIME_DIR) did not answer /healthz ok (${answer}); start that daemon first.`
     );
   }
 }

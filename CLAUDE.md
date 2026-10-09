@@ -28,8 +28,8 @@ pnpm run format:check
 
 `pnpm test` runs unit tests against a fake daemon. `pnpm test:rig` runs the integration suite
 against a long-lived local rig (a real duoduo daemon); it needs `TETHER_RIG_RUNTIME_DIR` and is not
-part of `pnpm test`. Where the rig lives on this machine is in `.agents/environments/tether-rig.md`
-(git-ignored).
+part of `pnpm test`. Set `TETHER_RIG_RUNTIME_DIR` to the runtime directory of a local duoduo daemon
+used as the rig.
 
 The channel build entry point is `pnpm --filter @openduo/channel-tether run build:plugin`.
 Do not replace it with a typecheck when validating the packaged channel.

@@ -8,7 +8,7 @@ import prettier from "eslint-config-prettier";
 export default [
   {
     ignores: [
-      ".agents/**",
+      ".agents",
       "dist/**",
       "**/dist/**",
       "build/**",
