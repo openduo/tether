@@ -133,6 +133,8 @@ Three ways, all carrying no mail content; the assistant then calls `ReadMail`:
 - **MCP Events**: an event subscription with a callback URL; one signed delivery per mail.
 - **Doorbells**: the operator registers an HTTPS endpoint per assistant
   (`duoduo channel tether doorbell add <name> --url <url> --auth hmac|bearer`); one POST per mail,
-  signed per Standard Webhooks with `hmac`, no retry.
+  signed per Standard Webhooks with `hmac`, no retry. A ring the endpoint does not answer is
+  abandoned after `ALADUO_TETHER_CIMD_TIMEOUT_MS` (see [deployment.md](deployment.md)), the same bound
+  as an event delivery.
 
 A missed notice costs only latency: the mail is there at the next `ReadMail`.

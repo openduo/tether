@@ -29,7 +29,10 @@ loopback by default (`ALADUO_TETHER_HOST` names another IP literal). This page s
 - **Client documents are fetched only after approval.** Nothing is fetched for a client before the
   owner's passkey, and the return address is checked against the document after it: exactly,
   except that a loopback `http` address may use any port (RFC 8252 section 7.3). A loopback port
-  reaches only the machine whose browser approved.
+  reaches only the machine whose browser approved. The client document and its key set are fetched
+  from the duoduo host's network position, without address filtering, so approve only hosts you
+  recognize. Doorbell URLs, registered by the owner on the host, are not address-filtered either;
+  event-subscription callbacks, which come from assistants, are.
 - **The built-in client is approved like any other.** The `duoduo-tether` command line's client
   document is a constant of the channel, so nothing is fetched for it; the owner's passkey and name
   are still required for every connection, and its return address is loopback only.

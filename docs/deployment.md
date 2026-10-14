@@ -31,13 +31,13 @@ channel log and `duoduo channel tether status` name the key.
 
 Limits have defaults; set a key only to change one. Each takes a positive whole number.
 
-| Key                                                                     | Default            | What it bounds                                                                       |
-| ----------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------ |
-| `ALADUO_TETHER_REQUEST_LIMIT_BYTES`                                     | 1 MiB              | The largest request the channel accepts                                              |
-| `ALADUO_TETHER_CHALLENGE_CAP`                                           | 1000               | Authorize and enrollment challenges outstanding at once; at the cap the oldest drops |
-| `ALADUO_TETHER_CODE_LIFETIME_MS`, `ALADUO_TETHER_CHALLENGE_LIFETIME_MS` | 10 minutes         | Authorization code and passkey challenge lifetime (RFC 6749 section 4.1.2)           |
-| `ALADUO_TETHER_CIMD_TIMEOUT_MS`, `ALADUO_TETHER_CIMD_MAX_BYTES`         | 10 s, 64 KiB       | Fetching a client document, a key set, or an event-subscription callback             |
-| `ALADUO_TETHER_TOOLS_LIST_TTL_MS`                                       | unset (no caching) | How long a 2026-07-28 client may cache the tool list                                 |
+| Key                                                                     | Default            | What it bounds                                                                                                    |
+| ----------------------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `ALADUO_TETHER_REQUEST_LIMIT_BYTES`                                     | 1 MiB              | The largest request the channel accepts                                                                           |
+| `ALADUO_TETHER_CHALLENGE_CAP`                                           | 1000               | Authorize and enrollment challenges outstanding at once; at the cap the oldest drops                              |
+| `ALADUO_TETHER_CODE_LIFETIME_MS`, `ALADUO_TETHER_CHALLENGE_LIFETIME_MS` | 10 minutes         | Authorization code and passkey challenge lifetime (RFC 6749 section 4.1.2)                                        |
+| `ALADUO_TETHER_CIMD_TIMEOUT_MS`, `ALADUO_TETHER_CIMD_MAX_BYTES`         | 10 s, 64 KiB       | Fetching a client document, a key set, or an event-subscription callback; the timeout also bounds a doorbell ring |
+| `ALADUO_TETHER_TOOLS_LIST_TTL_MS`                                       | unset (no caching) | How long a 2026-07-28 client may cache the tool list                                                              |
 
 The mail stream reconnects after the daemon's `ALADUO_PULL_WAIT_MS`.
 

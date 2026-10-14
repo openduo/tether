@@ -3,7 +3,7 @@
 
 import crypto from "node:crypto";
 import { InMemoryServerEventBus } from "@modelcontextprotocol/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { handleAdmin, runVerbProcess, type AdminDeps } from "../src/admin";
 import type { CallbackPost } from "../src/callback";
 import type { FetchLike } from "../src/cimd";
@@ -322,6 +322,42 @@ describe("a ring", () => {
       tether: "dots",
       host: "hook.example",
       error: "TypeError"
+    });
+  });
+
+  it("abandons a ring the doorbell never answers after the callback timeout", async () => {
+    const store = await storeWith([
+      grant({
+        doorbells: [
+          { url: "https://hook.example/a", auth: "bearer", secret: "tok", added_at: APPROVED }
+        ]
+      })
+    ]);
+    const warn = vi.fn();
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    onTestFinished(() => timeout.mockRestore());
+    const fetchImpl = vi.fn<FetchLike>(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        })
+    );
+    const { pull } = await started(store, { warn, fetchImpl });
+    pull.push(DOTS, record("evt_owned"));
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    expect(timeout).toHaveBeenCalledWith(LIMITS.timeoutMs);
+    const signal = fetchImpl.mock.calls[0][1].signal;
+    await vi.waitFor(
+      () => {
+        expect(signal?.aborted).toBe(true);
+        expect(warn).toHaveBeenCalledTimes(1);
+      },
+      { timeout: LIMITS.timeoutMs * 3 }
+    );
+    expect(warn.mock.calls[0][1]).toEqual({
+      tether: "dots",
+      host: "hook.example",
+      error: "TimeoutError"
     });
   });
 

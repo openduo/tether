@@ -689,7 +689,14 @@ export class Mailroom {
     const now = this.deps.store.clock();
     for (const doorbell of grant.doorbells ?? []) {
       const { url, init } = ringRequest(doorbell, mailId, now);
-      this.fire(grant, url, () => fetchImpl(url, init as never));
+      // Bounded like an event delivery: an endpoint that never answers must not hold a socket per mail.
+      const signal = AbortSignal.timeout(this.deps.callbackLimits.timeoutMs);
+      this.fire(grant, url, async () => {
+        const response = await fetchImpl(url, { ...init, signal });
+        // Only the status matters; dropping the body releases the connection.
+        void response.body?.cancel().catch(() => undefined);
+        return response;
+      });
     }
     for (const subscription of grant.subscriptions ?? []) {
       // A subscription the assistant did not refresh in time has lapsed.
