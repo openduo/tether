@@ -13,9 +13,19 @@ import path from "node:path";
 import { isRecord } from "@openduo/protocol";
 import { CliExit, EXIT } from "./io";
 
-export type Connection = { publicUrl: string; grant: string; token: string };
+/**
+ * `via` is a private origin every request is sent to instead of the public URL, for a client that
+ * shares a network with the host but cannot reach the public URL. The token stays bound to the
+ * public URL.
+ */
+export type Connection = { publicUrl: string; grant: string; token: string; via?: string };
 
-type TokenFile = { public_url: string; grant: string; token: string };
+type TokenFile = { public_url: string; grant: string; token: string; via?: string };
+
+/** The origin requests go to. */
+export function dialled(connection: Connection): string {
+  return connection.via ?? connection.publicUrl;
+}
 
 /** XDG Base Directory: a relative XDG_CONFIG_HOME is invalid and ignored. */
 export function tokenDir(env: Record<string, string | undefined>): string {
@@ -47,7 +57,8 @@ export async function saveConnection(
   const body: TokenFile = {
     public_url: connection.publicUrl,
     grant: connection.grant,
-    token: connection.token
+    token: connection.token,
+    ...(connection.via !== undefined ? { via: connection.via } : {})
   };
   try {
     const handle = await fs.open(temp, "wx", 0o600);
@@ -122,7 +133,8 @@ export async function loadConnection(
     !isRecord(parsed) ||
     typeof parsed.public_url !== "string" ||
     typeof parsed.grant !== "string" ||
-    typeof parsed.token !== "string"
+    typeof parsed.token !== "string" ||
+    (parsed.via !== undefined && typeof parsed.via !== "string")
   ) {
     throw new CliExit(
       EXIT.usage,
@@ -130,7 +142,12 @@ export async function loadConnection(
     );
   }
   return {
-    connection: { publicUrl: parsed.public_url, grant: parsed.grant, token: parsed.token },
+    connection: {
+      publicUrl: parsed.public_url,
+      grant: parsed.grant,
+      token: parsed.token,
+      ...(parsed.via !== undefined ? { via: parsed.via } : {})
+    },
     file
   };
 }

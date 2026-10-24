@@ -73,6 +73,29 @@ Options, each with its own trade-offs:
   skill `duoduo-tether` carries a reference implementation; it is not a supported
   component, and whoever deploys it owns its security.
 
+### A private route for CLI clients
+
+A `duoduo-tether` client that shares a private network with the host can send its requests there
+instead of to the public URL, for example when the public URL is blocked on the client's network:
+`duoduo-tether login <public URL> --via <private origin>` (see
+[cli.md](cli.md#logging-in)). With Tailscale:
+
+```bash
+tailscale serve --bg --https=8443 http://127.0.0.1:<ALADUO_TETHER_PORT>
+```
+
+This serves the channel at `https://<machine>.<tailnet>.ts.net:8443` inside the tailnet only; the
+client logs in with `--via https://<machine>.<tailnet>.ts.net:8443`. Pick a port that has no serve
+or Funnel entry yet: check `tailscale serve status` and `tailscale funnel status` first.
+
+- Use `tailscale serve`, not Funnel: Funnel publishes the address on the internet, a second public
+  origin beside the public URL.
+- Keep the channel bound to loopback; `serve` reaches it there.
+- Every tailnet peer the tailnet policy lets reach this machine can reach the route; every request
+  still needs a token. Narrowing who reaches it is the tailnet owner's policy choice.
+- The route carries requests only. The owner still approves on the public URL: passkeys are bound
+  to its host name (the WebAuthn RP ID), and the token to the public URL.
+
 ## First passkey, first connection
 
 1. With the public URL set and the channel running, `duoduo channel tether passkey add` prints a

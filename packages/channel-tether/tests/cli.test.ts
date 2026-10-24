@@ -26,6 +26,8 @@ import {
 } from "./helpers";
 
 const HOST = new URL(PUBLIC).host;
+/** A private origin of the same channel, as a tailnet would serve it. */
+const VIA = "https://tether.tailnet.example:8443";
 const OWNER = "lark:oc_owner:abc";
 
 const closers: Array<() => Promise<unknown>> = [];
@@ -243,6 +245,99 @@ describe("login", () => {
     const t = await cliHarness();
     expect(await t.cli("login", "http://tether.example.com")).toBe(2);
     expect(t.opened).toEqual([]);
+  });
+});
+
+describe("login --via", () => {
+  /** Requests the CLI sends; VIA and the public URL both reach the channel. */
+  function viaRoute(t: Awaited<ReturnType<typeof cliHarness>>) {
+    const sent: Array<{ url: string; body: string }> = [];
+    t.io.fetch = (input, init) => {
+      const url = String(input);
+      sent.push({ url, body: typeof init?.body === "string" ? init.body : "" });
+      const origin = [VIA, PUBLIC].find((candidate) => url.startsWith(candidate));
+      return fetch(origin ? `${t.base}${url.slice(origin.length)}` : url, init);
+    };
+    return sent;
+  }
+
+  it("sends every request to the private origin; the token stays bound to the public URL", async () => {
+    const t = await cliHarness();
+    const sent = viaRoute(t);
+    const done = t.cli("login", PUBLIC, "--via", `${VIA}/`);
+    const location = await t.approve("claude-code");
+    const authorize = new URL(t.opened[0] as string);
+    expect(authorize.origin).toBe(PUBLIC);
+    expect(authorize.searchParams.get("client_id")).toBe(`${PUBLIC}/clients/duoduo-tether`);
+    expect(authorize.searchParams.get("resource")).toBe(PUBLIC);
+    // The host's redirect names its issuer, the public URL; login accepts it.
+    expect(location.searchParams.get("iss")).toBe(PUBLIC);
+    await fetch(location);
+    expect(await done).toBe(0);
+    expect(t.out.stdout).toContain(`Logged in to ${PUBLIC}; requests go to ${VIA}.`);
+    const exchange = sent.find((request) => request.url === `${VIA}/token`);
+    const exchanged = new URLSearchParams(exchange?.body);
+    expect(exchanged.get("resource")).toBe(PUBLIC);
+    expect(exchanged.get("client_id")).toBe(`${PUBLIC}/clients/duoduo-tether`);
+    const stored = JSON.parse(await fs.readFile(tokenPath(t.io.env, HOST), "utf8")) as Record<
+      string,
+      string
+    >;
+    expect(Object.keys(stored).sort()).toEqual(["grant", "public_url", "token", "via"]);
+    expect(stored.public_url).toBe(PUBLIC);
+    expect(stored.via).toBe(VIA);
+    expect(await t.cli("status")).toBe(0);
+    expect(t.out.stdout).toContain(`Requests go to ${VIA}.`);
+    expect(await t.cli("logout")).toBe(0);
+    expect(sent.map((request) => new URL(request.url).origin)).toEqual(sent.map(() => VIA));
+    expect(sent.map((request) => new URL(request.url).pathname)).toEqual([
+      "/token",
+      "/mcp",
+      "/mcp",
+      "/revoke"
+    ]);
+  });
+
+  it("refuses a private origin that is not https, or that carries more than an origin", async () => {
+    const t = await cliHarness();
+    expect(await t.cli("login", PUBLIC, "--via", "http://tether.tailnet.example:8443")).toBe(2);
+    expect(t.out.stderr).toContain("is not https");
+    expect(await t.cli("login", PUBLIC, "--via", `${VIA}/mcp`)).toBe(2);
+    expect(await t.cli("login", PUBLIC, "--via", `${VIA}?x=1`)).toBe(2);
+    expect(await t.cli("login", PUBLIC, "--via", "https://user@tether.tailnet.example")).toBe(2);
+    expect(t.out.stderr).toContain("is not an origin");
+    expect(t.opened).toEqual([]);
+  });
+
+  it("an unreachable private origin is 4 and named; the public URL is not tried", async () => {
+    const t = await cliHarness();
+    const done = t.cli("login", PUBLIC, "--via", VIA);
+    viaRoute(t);
+    await fetch(await t.approve("claude-code"));
+    expect(await done).toBe(0);
+    const dialled: string[] = [];
+    t.io.fetch = async (input) => {
+      dialled.push(String(input));
+      throw new TypeError("fetch failed");
+    };
+    expect(await t.cli("addresses")).toBe(4);
+    expect(t.out.stderr).toContain(`Could not reach ${VIA}`);
+    expect(dialled).toEqual([`${VIA}/mcp`]);
+  });
+
+  it("a token file without via, as earlier versions wrote it, still works against the public URL", async () => {
+    const t = await cliHarness();
+    const grant = await t.loggedIn();
+    const file = tokenPath(t.io.env, HOST);
+    const stored = JSON.parse(await fs.readFile(file, "utf8")) as Record<string, string>;
+    await fs.writeFile(
+      file,
+      JSON.stringify({ public_url: PUBLIC, grant: grant.grant_id, token: stored.token })
+    );
+    const sent = viaRoute(t);
+    expect(await t.cli("status")).toBe(0);
+    expect(t.out.stdout).not.toContain("Requests go to");
+    expect(sent.map((request) => request.url)).toEqual([`${PUBLIC}/mcp`]);
   });
 });
 
@@ -492,6 +587,38 @@ describe("listen", () => {
     t.io.fetch = async () => new Response("", { status: 404 });
     expect(await t.cli("listen")).toBe(4);
     expect(t.sleeps).toEqual([]);
+  });
+
+  it("a connection attempt that fails at fetch level exits 4 without reconnecting", async () => {
+    const t = await cliHarness();
+    t.io.listenTiming = fast;
+    await t.loggedIn();
+    t.io.fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    expect(await t.cli("listen", "--follow")).toBe(4);
+    expect(t.out.stderr).toContain(`Could not reach ${PUBLIC}`);
+    expect(t.sleeps).toEqual([]);
+  });
+
+  it("a fetch-level failure on a reconnect after an acknowledged stream exits 4", async () => {
+    const t = await cliHarness();
+    t.io.listenTiming = fast;
+    await t.loggedIn();
+    const pulls = () =>
+      t.h.daemon.mock.calls.filter(([method]) => method === "channel.pull").length;
+    const before = pulls();
+    const done = t.cli("listen", "--follow");
+    // Fence: the stream is acknowledged and its first mailbox read reached the host.
+    await vi.waitFor(() => expect(pulls()).toBeGreaterThan(before));
+    t.io.fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+    t.h.app.server.closeAllConnections();
+    expect(await done).toBe(4);
+    expect(t.out.stderr).toContain("reconnecting");
+    expect(t.out.stderr).toContain(`Could not reach ${PUBLIC}`);
+    expect(t.sleeps).toHaveLength(1);
   });
 
   it("reconnect delays double from the minimum to the maximum, under full jitter", () => {

@@ -15,7 +15,7 @@ import type { AddressInfo } from "node:net";
 import { builtInClientId } from "../client-contract";
 import { httpFailure, rpc, unreachable } from "./http";
 import { CliExit, EXIT, type CliIo } from "./io";
-import { loadConnection, saveConnection, type Connection } from "./tokens";
+import { dialled, loadConnection, saveConnection, type Connection } from "./tokens";
 
 const b64url = (bytes: Buffer): string => bytes.toString("base64url");
 
@@ -32,6 +32,35 @@ function publicOrigin(raw: string): string {
   }
   if (parsed.protocol !== "https:") {
     throw new CliExit(EXIT.usage, `${raw} is not https; a tether host's public URL always is.`);
+  }
+  return parsed.origin;
+}
+
+/** `--via`: an https origin, any port, nothing but the origin. */
+function viaOrigin(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new CliExit(EXIT.usage, `--via ${JSON.stringify(raw)} is not a URL.`);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new CliExit(
+      EXIT.usage,
+      `--via ${raw} is not https; the token travels with every request, so --via must be https.`
+    );
+  }
+  if (
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== ""
+  ) {
+    throw new CliExit(
+      EXIT.usage,
+      `--via ${raw} is not an origin; give only https://host or https://host:port.`
+    );
   }
   return parsed.origin;
 }
@@ -102,7 +131,7 @@ async function waitForCode(io: CliIo, state: string): Promise<Waiting> {
 
 async function revokeQuietly(io: CliIo, connection: Connection): Promise<boolean> {
   try {
-    const response = await io.fetch(`${connection.publicUrl}/revoke`, {
+    const response = await io.fetch(`${dialled(connection)}/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -129,8 +158,15 @@ async function abandon(io: CliIo, connection: Connection, why: string): Promise<
   );
 }
 
-export async function login(io: CliIo, rawUrl: string, name: string | undefined): Promise<number> {
+export async function login(
+  io: CliIo,
+  rawUrl: string,
+  name: string | undefined,
+  rawVia: string | undefined
+): Promise<number> {
   const publicUrl = publicOrigin(rawUrl);
+  const via = rawVia !== undefined ? viaOrigin(rawVia) : undefined;
+  const route = via !== undefined ? { via } : {};
   const clientId = builtInClientId(publicUrl);
   const verifier = b64url(crypto.randomBytes(32));
   const challenge = b64url(crypto.createHash("sha256").update(verifier).digest());
@@ -176,10 +212,10 @@ export async function login(io: CliIo, rawUrl: string, name: string | undefined)
   } finally {
     waiting.stop();
   }
-  const pending: Connection = { publicUrl, grant: "", token: "" };
+  const pending: Connection = { publicUrl, grant: "", token: "", ...route };
   let response: Response;
   try {
-    response = await io.fetch(`${publicUrl}/token`, {
+    response = await io.fetch(`${dialled(pending)}/token`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -201,9 +237,9 @@ export async function login(io: CliIo, rawUrl: string, name: string | undefined)
   }
   const body = (await response.json()) as { access_token?: unknown };
   if (typeof body.access_token !== "string") {
-    throw new CliExit(EXIT.unreachable, `${publicUrl} issued no access token.`);
+    throw new CliExit(EXIT.unreachable, `${dialled(pending)} issued no access token.`);
   }
-  const connection: Connection = { publicUrl, grant: "", token: body.access_token };
+  const connection: Connection = { publicUrl, grant: "", token: body.access_token, ...route };
   try {
     const listed = await rpc(io, connection, "resources/list", {});
     const resources = Array.isArray(listed.resources) ? (listed.resources as unknown[]) : [];
@@ -229,7 +265,11 @@ export async function login(io: CliIo, rawUrl: string, name: string | undefined)
       `The token was issued, but the token file could not be written (${error instanceof Error ? error.message : String(error)}).`
     );
   }
-  io.stdout(`Logged in to ${publicUrl}. The token is in ${file}.\n`);
+  io.stdout(
+    via !== undefined
+      ? `Logged in to ${publicUrl}; requests go to ${via}. The token is in ${file}.\n`
+      : `Logged in to ${publicUrl}. The token is in ${file}.\n`
+  );
   return EXIT.ok;
 }
 
@@ -237,7 +277,7 @@ export async function logout(io: CliIo, host: string | undefined): Promise<numbe
   const { connection, file } = await loadConnection(io.env, host);
   let response: Response;
   try {
-    response = await io.fetch(`${connection.publicUrl}/revoke`, {
+    response = await io.fetch(`${dialled(connection)}/revoke`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

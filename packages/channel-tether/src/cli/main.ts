@@ -22,7 +22,7 @@ type Spec = {
 };
 
 const COMMANDS: Record<string, Spec> = {
-  login: { positionals: ["url"], options: ["name"], flags: [] },
+  login: { positionals: ["url"], options: ["name", "via"], flags: [] },
   logout: { positionals: [], options: [], flags: [] },
   status: { positionals: [], options: [], flags: [] },
   context: { positionals: [], options: ["conversation"], flags: [] },
@@ -49,7 +49,7 @@ const GLOBAL_FLAGS = ["json"];
 
 export const USAGE = `duoduo-tether: connect an agent to a duoduo host as a connected assistant.
 
-  duoduo-tether login <public url> [--name <name>]
+  duoduo-tether login <public url> [--name <name>] [--via <private origin>]
   duoduo-tether logout
   duoduo-tether status
   duoduo-tether context [--conversation <id>]
@@ -197,6 +197,7 @@ async function status(io: CliIo, parsed: Parsed): Promise<number> {
     : false;
   io.stdout(
     `${connection.publicUrl}: the token works${listed ? ` (grant ${connection.grant})` : ", but it lists no mailbox for the grant in the token file"}.\n` +
+      (connection.via !== undefined ? `Requests go to ${connection.via}.\n` : "") +
       `Token file: ${file}\n`
   );
   return EXIT.ok;
@@ -210,7 +211,7 @@ async function dispatch(io: CliIo, argv: string[]): Promise<number> {
   const parsed = parseArgs(argv);
   switch (parsed.command) {
     case "login":
-      return login(io, parsed.positionals[0] as string, parsed.options.name);
+      return login(io, parsed.positionals[0] as string, parsed.options.name, parsed.options.via);
     case "logout":
       return logout(io, parsed.options.host);
     case "status":

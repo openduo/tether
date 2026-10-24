@@ -19,7 +19,7 @@ package; installing the package to use the command starts nothing.
 ## Logging in
 
 ```bash
-duoduo-tether login <public url> [--name <name>]
+duoduo-tether login <public url> [--name <name>] [--via <private origin>]
 ```
 
 1. The command listens on `127.0.0.1` at a free port and builds an authorization request for the
@@ -48,6 +48,17 @@ the owner never approves, stop `login` by hand (Ctrl-C).
 If the token is issued but the token file cannot be written, `login` revokes that token at once
 and says so, so no connection is left that nothing holds.
 
+**A private route (`--via`).** A client on the same private network as the host (a tailnet, for
+example) can reach the host where the public URL is blocked or unreachable from it. `--via
+<private origin>` sends every request `login` and later commands make (`/token`, `/mcp`,
+`/revoke`) to that origin instead of the public URL. The authorize page still opens on the public
+URL, where the owner's passkey works, and the token, its `resource`, the client and the issuer stay
+bound to the public URL. The origin must be `https:` (any port, no path); `http:` is refused, since
+the token travels with every request. There is no fallback: when the private origin cannot be
+reached, a command exits 4 and names it, and the public URL is not tried. `login` prints where
+requests go, and so does `status`. To change or drop the route, log in again with or without
+`--via`. [deployment.md](deployment.md#a-private-route-for-cli-clients) shows a host-side setup.
+
 Logging in again to a host that already has a token file replaces that file once the new token is
 issued. Whether the old connection stays depends on the name the owner gives: the same name replaces
 it (the page says so after the passkey), another name adds a second connection.
@@ -67,6 +78,9 @@ separate connections to one host by running with different `XDG_CONFIG_HOME` val
 }
 ```
 
+A login with `--via` adds `"via": "<private origin>"`; a file without it sends requests to the
+public URL.
+
 The connection's name is not stored: the owner may change it, and `context` reports who this
 assistant is.
 
@@ -80,7 +94,7 @@ there is; with none, or several, it exits 2 and names the hosts it found.
 
 | Command                                                                                                                        | Tool               | What it does                                                          |
 | ------------------------------------------------------------------------------------------------------------------------------ | ------------------ | --------------------------------------------------------------------- |
-| `login <url> [--name <name>]`                                                                                                  | (OAuth)            | Connect; see above                                                    |
+| `login <url> [--name <name>] [--via <origin>]`                                                                                 | (OAuth)            | Connect; see above                                                    |
 | `logout`                                                                                                                       | (`/revoke`)        | Revoke the token on the host, then delete the token file              |
 | `status`                                                                                                                       | (resource list)    | The host and grant, with the token checked live                       |
 | `context [--conversation <id>]`                                                                                                | `GetContext`       | Who this assistant is, duoduo's board, and a conversation id          |
@@ -113,13 +127,13 @@ token was not revoked, so run `logout` again.
 
 ### Exit codes
 
-| Code | Meaning                                                                                                      |
-| ---- | ------------------------------------------------------------------------------------------------------------ |
-| 0    | Done; for `listen`, mail is waiting                                                                          |
-| 1    | The tool refused (`isError`), the server answered a JSON-RPC error, or `login` could not keep the token      |
-| 2    | The command line is wrong, or no token file is chosen: not logged in, or several hosts and no `--host`       |
-| 3    | The host refused the token (HTTP 401): revoked, replaced, or issued under another public URL                 |
-| 4    | The host could not be reached or answered another HTTP error; `listen` reconnects instead on a drop or `5xx` |
+| Code | Meaning                                                                                                                               |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Done; for `listen`, mail is waiting                                                                                                   |
+| 1    | The tool refused (`isError`), the server answered a JSON-RPC error, or `login` could not keep the token                               |
+| 2    | The command line is wrong, or no token file is chosen: not logged in, or several hosts and no `--host`                                |
+| 3    | The host refused the token (HTTP 401): revoked, replaced, or issued under another public URL                                          |
+| 4    | The host could not be reached or answered another HTTP error; for `listen`, a connection attempt failed (see [Listening](#listening)) |
 
 ## Listening
 
@@ -144,9 +158,12 @@ mail evt_…@2026-10-07 from tether:muse
 Reading the mailbox on every acknowledgment reports mail that arrived while no stream was open: before
 `listen` started, or during a reconnect.
 
-**Reconnecting.** A dropped stream, a `5xx` answer, or a stream silent for 45 seconds is reconnected
-inside the process; it never ends the command. The host sends a keep-alive every 15 seconds, so 45
-seconds of silence is three missed keep-alives: a relay can leave a dead connection half open, and
+**Reconnecting.** A stream that drops after reaching the host, a `5xx` answer, or 45 seconds of
+silence (no answer to the request, or no keep-alive on the stream) is reconnected inside the
+process; it never ends the command. A connection attempt that fails before any answer (DNS, TLS, a
+refused or timed-out connection) ends `listen` with exit 4 and a line on standard error, on the
+first attempt or on any reconnect: the host cannot be reached, so waiting would never wake the
+agent. The host sends a keep-alive every 15 seconds, so 45 seconds of silence is three missed keep-alives: a relay can leave a dead connection half open, and
 silence is then the only sign. The delay before each attempt is random below a ceiling that starts at
 1 second and doubles per failed attempt up to 60 seconds; an acknowledged stream resets it. Each
 reconnect writes one line to standard error.
@@ -165,6 +182,8 @@ be woken by mail.
 **Claude Code, background command.** Run `duoduo-tether listen` with Bash in the background. When
 mail arrives the command exits, and Claude Code is told the background command finished, with its
 output. The agent reads the mail with `duoduo-tether mail`, answers, and starts `listen` again.
+On exit 4 the agent reports that the host is unreachable rather than restarting `listen` straight
+away.
 
 **Claude Code, Monitor.** Start `duoduo-tether listen --follow` with the Monitor tool. Each mail is
 one output line, and each line is an event for the agent; the process stays up across mails.
@@ -201,9 +220,9 @@ done
 
 - The agent reads the mail itself with `duoduo-tether mail`; the loop passes it nothing. Unread mail
   stays unread until the agent reads it, so a run that fails before reading is not lost.
-- Exit 0 means stop for good (the connection was revoked); exit 1 means a fault, and the supervisor
-  restarts the script with its own delay. Do not loop straight back after a failed run: `listen`
-  reports waiting unread mail at once, so a run that keeps failing would start again immediately and
+- Exit 0 means stop for good (the connection was revoked); exit 1 means a fault, `listen`'s exit 4
+  (host unreachable) included, and the supervisor restarts the script with its own delay. Do not
+  loop straight back after a failed run: `listen` reports waiting unread mail at once, so a run that keeps failing would start again immediately and
   spend on every pass. The same holds for a run that succeeds without reading its mail: the prompt must make the
   agent read it.
 - `--allowedTools "Bash(duoduo-tether:*)"` lets the agent run `duoduo-tether` without a prompt. Add

@@ -9,7 +9,7 @@
 import { isRecord } from "@openduo/protocol";
 import { MODERN_PROTOCOL } from "../client-contract";
 import { CliExit, EXIT, type CliIo } from "./io";
-import type { Connection } from "./tokens";
+import { dialled, type Connection } from "./tokens";
 
 export type Json = Record<string, unknown>;
 
@@ -37,7 +37,7 @@ export async function postMcp(
   name?: string,
   signal?: AbortSignal
 ): Promise<Response> {
-  return io.fetch(`${connection.publicUrl}/mcp`, {
+  return io.fetch(`${dialled(connection)}/mcp`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${connection.token}`,
@@ -70,18 +70,19 @@ export async function httpFailure(connection: Connection, response: Response): P
     return new CliExit(
       EXIT.token,
       `${connection.publicUrl} refused the token${said ? `: ${said}` : "."} Log in again with` +
-        ` duoduo-tether login ${connection.publicUrl}.`
+        ` duoduo-tether login ${connection.publicUrl}` +
+        `${connection.via !== undefined ? ` --via ${connection.via}` : ""}.`
     );
   }
   return new CliExit(
     EXIT.unreachable,
-    `${connection.publicUrl} answered HTTP ${response.status}${said ? `: ${said}` : "."}`
+    `${dialled(connection)} answered HTTP ${response.status}${said ? `: ${said}` : "."}`
   );
 }
 
 export function unreachable(connection: Connection, error: unknown): CliExit {
   const why = error instanceof Error ? (error.cause ?? error).toString() : String(error);
-  return new CliExit(EXIT.unreachable, `Could not reach ${connection.publicUrl} (${why}).`);
+  return new CliExit(EXIT.unreachable, `Could not reach ${dialled(connection)} (${why}).`);
 }
 
 /** The JSON-RPC messages of an SSE body. */
@@ -134,7 +135,7 @@ export async function rpc(
   if (message === undefined) {
     throw new CliExit(
       EXIT.unreachable,
-      `${connection.publicUrl} answered something that is not MCP.`
+      `${dialled(connection)} answered something that is not MCP.`
     );
   }
   if (isRecord(message.error)) {

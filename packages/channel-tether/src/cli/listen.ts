@@ -12,7 +12,7 @@ import { isRecord } from "@openduo/protocol";
 import { LISTEN_KEEP_ALIVE_MS, mailboxUri } from "../client-contract";
 import { httpFailure, postMcp, rpc, sseMessages, unreachable } from "./http";
 import { CliExit, EXIT, type CliIo, type ListenTiming } from "./io";
-import type { Connection } from "./tokens";
+import { dialled, type Connection } from "./tokens";
 
 export const LISTEN_TIMING: ListenTiming = {
   // Derived: three missed keep-alives. A relay that drops a connection can
@@ -167,10 +167,11 @@ class Stream {
         this.abort.signal
       );
     } catch (error) {
-      return {
-        drop: this.silent ? "no answer" : unreachable(this.connection, error).message,
-        acknowledged: false
-      };
+      if (this.silent) return { drop: "no answer", acknowledged: false };
+      // Exit 4 means unreachable for every command. A reconnect is for trouble after the host was
+      // reached; a client that cannot reach it at all would otherwise wait forever, unwoken.
+      this.io.stderr(`${unreachable(this.connection, error).message}\n`);
+      return { exit: EXIT.unreachable };
     }
     if (!response.ok) {
       const failure = await httpFailure(this.connection, response);
@@ -185,7 +186,7 @@ class Stream {
         this.io.stderr(`${String(message.error.message ?? "The listen was refused.")}\n`);
         return { exit: EXIT.refused };
       }
-      this.io.stderr(`${this.connection.publicUrl} answered the listen without a stream.\n`);
+      this.io.stderr(`${dialled(this.connection)} answered the listen without a stream.\n`);
       return { exit: EXIT.unreachable };
     }
     let buffer = "";
