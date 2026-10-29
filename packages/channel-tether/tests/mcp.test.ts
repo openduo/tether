@@ -276,7 +276,11 @@ describe("tools/call", () => {
     const boardRev = crypto.createHash("sha256").update("FILE\n").digest("hex").slice(0, 16);
     const first = await h.tool("GetContext", {});
     const conversation = first.result.structuredContent.conversation as string;
-    expect(first.result.structuredContent).toEqual({ conversation, board_rev: boardRev });
+    expect(first.result.structuredContent).toEqual({
+      conversation,
+      board_rev: boardRev,
+      text: expect.any(String)
+    });
     expect(first.result.content).toEqual([
       {
         type: "text",
@@ -284,7 +288,11 @@ describe("tools/call", () => {
       }
     ]);
     const second = await h.tool("GetContext", { conversation: "c-new" });
-    expect(second.result.structuredContent).toEqual({ conversation: "c-new", board_rev: boardRev });
+    expect(second.result.structuredContent).toEqual({
+      conversation: "c-new",
+      board_rev: boardRev,
+      text: expect.any(String)
+    });
     expect(daemonCalls(h, "memory.read").map(([, params]) => params)).toEqual([
       { path: "CLAUDE.md" },
       { path: "CLAUDE.md" }
@@ -306,7 +314,8 @@ describe("tools/call", () => {
       ok: true,
       event_id: "evt_1",
       ts: "2026-10-03T08:00:00.000Z",
-      duplicate: false
+      duplicate: false,
+      text: expect.any(String)
     });
     expect(daemonCalls(h, "spine.record").map(([, params]) => params)).toEqual([
       {
@@ -335,7 +344,8 @@ describe("tools/call", () => {
     ).toBe("EVENTS\n");
     // Assistants come from the plugin's own grants.
     expect((await h.tool("ListAddresses", {})).result.structuredContent).toEqual({
-      addresses: [{ address: "tether:dots", kind: "assistant", alias: null, last_read_at: null }]
+      addresses: [{ address: "tether:dots", kind: "assistant", alias: null, last_read_at: null }],
+      text: expect.any(String)
     });
     expect(daemonCalls(h, "memory.read").map(([, p]) => p)).toEqual([{ path: "entities/x.md" }]);
     // ReadEvents is spine.cat's external view.
@@ -555,7 +565,8 @@ describe("SendMail to a session", () => {
       route_id: "route-1",
       event_id: "evt_2",
       ts: "t",
-      duplicate: true
+      duplicate: true,
+      text: expect.any(String)
     });
   });
 

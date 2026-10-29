@@ -114,7 +114,16 @@ function object(properties: Record<string, PropertySchema>, required: string[] =
   };
 }
 
-const RECEIPT_SCHEMA = object(
+/**
+ * A success result's schema. `text` repeats the content text block: claude.ai
+ * connectors (Claude Code, Duet) and VS Code Copilot hand the model only
+ * structuredContent.
+ */
+function output(properties: Record<string, PropertySchema>, required: string[] = []): JsonSchema {
+  return object({ ...properties, text: { type: "string" } }, [...required, "text"]);
+}
+
+const RECEIPT_SCHEMA = output(
   {
     ok: flag(),
     event_id: text(),
@@ -153,7 +162,7 @@ export const TOOLS: readonly ToolSpec[] = [
     inputSchema: object({
       conversation: text("This chat's conversation id, from the first GetContext of the chat.")
     }),
-    outputSchema: object({ conversation: text(), board_rev: text() }, [
+    outputSchema: output({ conversation: text(), board_rev: text() }, [
       "conversation",
       "board_rev"
     ]),
@@ -166,7 +175,7 @@ export const TOOLS: readonly ToolSpec[] = [
     inputSchema: object({ path: text("Relative to memory/, for example entities/<slug>.md.") }, [
       "path"
     ]),
-    outputSchema: object({ path: text() }, ["path"]),
+    outputSchema: output({ path: text() }, ["path"]),
     annotations: { readOnlyHint: true }
   },
   {
@@ -188,7 +197,7 @@ export const TOOLS: readonly ToolSpec[] = [
       json: flag(),
       show: text("An event id; needs date.")
     }),
-    outputSchema: object({}),
+    outputSchema: output({}),
     annotations: { readOnlyHint: true }
   },
   {
@@ -196,7 +205,7 @@ export const TOOLS: readonly ToolSpec[] = [
     title: "List duoduo's mail addresses",
     scopes: MAIL_SCOPES,
     inputSchema: object({}),
-    outputSchema: object({ addresses: { type: "array", items: { type: "object" } } }, [
+    outputSchema: output({ addresses: { type: "array", items: { type: "object" } } }, [
       "addresses"
     ]),
     annotations: { readOnlyHint: true }
@@ -225,7 +234,7 @@ export const TOOLS: readonly ToolSpec[] = [
       id: text("One mail by id."),
       after: text("The mails after this mail id.")
     }),
-    outputSchema: object({ mails: { type: "array", items: { type: "object" } } }, ["mails"]),
+    outputSchema: output({ mails: { type: "array", items: { type: "object" } } }, ["mails"]),
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
   },
   {
@@ -306,7 +315,10 @@ export type McpDeps = {
 };
 
 function textResult(body: string, structured: Record<string, unknown>): CallToolResult {
-  return { content: [{ type: "text", text: body }], structuredContent: structured };
+  return {
+    content: [{ type: "text", text: body }],
+    structuredContent: { ...structured, text: body }
+  };
 }
 
 /** The `_meta` key a refusal's reason code travels under. */

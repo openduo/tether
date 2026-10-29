@@ -1326,3 +1326,25 @@ describe("doorbell host verbs", () => {
     expect(output.exitCode).toBe(1);
   });
 });
+
+describe("a success result's structuredContent", () => {
+  // Some clients hand the model only structuredContent; the body must be in it.
+  it("carries the same full text as the content block for GetContext, ReadMemory, ReadEvents and ReadMail", async () => {
+    const h = await mailHarness();
+    await h.connectAs("dots");
+    h.deliver(DOTS, record("evt_1"));
+    const calls: Array<[string, unknown, string]> = [
+      ["GetContext", {}, "FILE"],
+      ["ReadMemory", { path: "entities/x.md" }, "FILE"],
+      ["ReadEvents", { date: "2026-10-04" }, "route.deliver"],
+      ["ReadMail", {}, "text of evt_1"]
+    ];
+    for (const [name, args, body] of calls) {
+      const result = await h.tool("dots", name, args);
+      const content = result.content as Array<{ type: string; text: string }>;
+      const structured = result.structuredContent as { text: string };
+      expect(structured.text, name).toBe(content[0].text);
+      expect(structured.text, name).toContain(body);
+    }
+  });
+});

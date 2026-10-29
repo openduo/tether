@@ -96,8 +96,10 @@ session scopes.
 | `RecordExperience` | Record the message answered, what was done and the outcome, so duoduo learns from it. Idempotent     |
 
 A refused call is a tool result with `isError: true`, a sentence saying what happened and what to do
-next, and a machine-readable reason in `_meta["duoduo/reason"]`. A successful call may also carry
-`structuredContent`. Argument errors are JSON-RPC errors (`-32602`) with readable text.
+next, and a machine-readable reason in `_meta["duoduo/reason"]`. A successful call also carries
+`structuredContent`, whose `text` field holds the same full text as the content block: some clients
+give the model only `structuredContent`. Argument errors are JSON-RPC errors (`-32602`) with readable
+text.
 
 The server speaks the legacy MCP initialize handshake and the 2026-07-28 protocol. On 2026-07-28,
 `tools/list` carries a cache hint only when the operator sets one (`ALADUO_TETHER_TOOLS_LIST_TTL_MS`).
