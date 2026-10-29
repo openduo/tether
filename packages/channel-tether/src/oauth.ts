@@ -43,7 +43,7 @@ export type OAuthDeps = {
   store: Store;
   daemon: DaemonCall;
   /** Told of every grant a token exchange or revoke ends or adds. */
-  mail: Pick<Mailroom, "approved" | "revoked">;
+  mail: Pick<Mailroom, "approved" | "revoked" | "announce">;
   fetchImpl?: FetchLike;
 };
 
@@ -634,7 +634,8 @@ export async function exchangeToken(
     peeked !== null && peeked.clientAuth.method === "private_key_jwt"
       ? await verifyClientAssertion(deps, peeked.clientId, peeked.clientAuth, form)
       : null;
-  return deps.store.serialize(async () => {
+  let committed = null as Grant | null;
+  const reply = await deps.store.serialize(async () => {
     if (form.grant_type !== "authorization_code") {
       return tokenError("unsupported_grant_type", "grant_type must be authorization_code");
     }
@@ -672,8 +673,12 @@ export async function exchangeToken(
     // The session exists before the token is out, and a replaced grant's
     // unread mail is bounced under this same turn of the mutex.
     await deps.mail.approved(grant);
+    committed = grant;
     return json(200, { access_token: token, token_type: "Bearer", scope: bound.scopes.join(" ") });
   });
+  // Only an issued grant is a new connection; a client presenting its token again is not.
+  if (committed !== null) await deps.mail.announce(committed);
+  return reply;
 }
 
 // --- revoke (RFC 7009) ---------------------------------------------------------------------

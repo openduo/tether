@@ -427,6 +427,24 @@ export function renderBounce(name: string, mailId: string): string {
   );
 }
 
+/**
+ * The host's main session learns of a committed grant. It tells the owner in its own words,
+ * so this carries the facts and the host verbs, nothing addressed to a person.
+ */
+export function renderConnected(input: {
+  name: string;
+  clientId: string;
+  approvedAt: string;
+}): string {
+  const { name, clientId, approvedAt } = input;
+  return (
+    `An assistant connected to this duoduo through tether as tether:${name}: client` +
+    ` ${JSON.stringify(clientId)}, approved at ${formatInstant(approvedAt)}.` +
+    ` On the host, duoduo channel tether list shows every connected assistant, and` +
+    ` duoduo channel tether revoke ${name} disconnects this one.`
+  );
+}
+
 // --- the authorize page ---------------------------------------------------------------
 
 export function renderNameRefusal(

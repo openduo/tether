@@ -516,6 +516,7 @@ export async function pluginHarness(
   const fetchImpl = options.fetchImpl ?? fakeCimd();
   const bus = new InMemoryServerEventBus();
   const pull = fakePull();
+  const log = { warn: vi.fn() };
   // Never started: a test that needs the streams calls start().
   const mail = new Mailroom({
     store,
@@ -523,7 +524,7 @@ export async function pluginHarness(
     openPull: pull.openPull,
     reconnectMs: 0,
     workspace: stateDir,
-    log: { warn: vi.fn() },
+    log,
     fetchImpl,
     callbackLimits: config.cimd,
     ...(options.postCallback ? { postCallback: options.postCallback } : {}),
@@ -539,7 +540,15 @@ export async function pluginHarness(
     bus,
     ...(options.postCallback ? { postCallback: options.postCallback } : {})
   });
-  return { app, store, stateDir, authenticator, daemon, config, fetchImpl, mail, bus, pull };
+  return { app, store, stateDir, authenticator, daemon, config, fetchImpl, mail, bus, pull, log };
+}
+
+/**
+ * The notice a token exchange sends the host's main session. Tests of the mail paths count only
+ * their own notifies, so they leave it out.
+ */
+export function isConnectionNotice(method: string, params: Record<string, unknown>): boolean {
+  return method === "session.notify" && params.target === "main" && params.source === "tether";
 }
 
 /** The client of each stored grant, in file order (grants are keyed by grant_id). */

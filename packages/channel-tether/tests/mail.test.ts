@@ -33,6 +33,7 @@ import {
   fakeOutbox,
   fakePull,
   grantNamed,
+  isConnectionNotice,
   makeStore,
   pluginHarness,
   PUBLIC
@@ -564,7 +565,9 @@ async function mailHarness() {
     return (JSON.parse(response.payload) as { result: Record<string, unknown> }).result;
   };
   const sent = (method: string) =>
-    h.daemon.mock.calls.filter(([called]) => called === method).map(([, p]) => p);
+    h.daemon.mock.calls
+      .filter(([called, p]) => called === method && !isConnectionNotice(called, p))
+      .map(([, p]) => p);
   return { ...h, outbox, deliver, connectAs, tool, sent, clock };
 }
 

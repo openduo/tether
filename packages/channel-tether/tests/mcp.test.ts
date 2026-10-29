@@ -25,6 +25,7 @@ import {
   connect,
   fakeDaemon,
   grantNamed,
+  isConnectionNotice,
   pluginHarness,
   PUBLIC
 } from "./helpers";
@@ -77,7 +78,9 @@ async function connected(options: Parameters<typeof pluginHarness>[0] & { scope?
 }
 
 const daemonCalls = (h: Harness, method: string) =>
-  h.daemon.mock.calls.filter(([called]) => called === method);
+  h.daemon.mock.calls.filter(
+    ([called, params]) => called === method && !isConnectionNotice(called, params)
+  );
 
 describe("transport", () => {
   it("GET /mcp is 405 with no token needed", async () => {

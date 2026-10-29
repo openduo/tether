@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { runRevoke } from "../src/admin";
 import type { FetchLike } from "../src/cimd";
 import { SCOPES } from "../src/config";
+import { DaemonUnreachableError } from "../src/forward";
 import type { Grants } from "../src/store";
 import {
   approvalLocation,
@@ -1035,6 +1036,72 @@ describe("tokens and revocation", () => {
     grantNamed(grants, "dots").resource = "https://old.example.com";
     await h.store.writeGrants(grants);
     expect((await mcp(h, accessToken)).statusCode).toBe(401);
+  });
+});
+
+describe("the host's main session is told of a new connection", () => {
+  const mcp = (h: Harness, token: string) =>
+    h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream"
+      },
+      payload: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })
+    });
+  const notices = (h: Harness) =>
+    h.daemon.mock.calls
+      .filter(([method]) => method === "session.notify")
+      .map(([, params]) => params)
+      .filter((params) => params.target === "main");
+
+  it("a token exchange sends one notify to the alias main, labelled tether, never forced", async () => {
+    const h = await pluginHarness();
+    const { token } = await connect(h.app, h.authenticator, { name: "dots" });
+    expect(token.statusCode).toBe(200);
+    expect(notices(h)).toEqual([{ target: "main", message: expect.any(String), source: "tether" }]);
+  });
+
+  it("a client presenting its token again, and a plugin restart, send none", async () => {
+    const h = await pluginHarness();
+    const { accessToken } = await connect(h.app, h.authenticator, { name: "dots" });
+    expect((await mcp(h, accessToken)).statusCode).toBe(200);
+    expect((await mcp(h, accessToken)).statusCode).toBe(200);
+    await h.mail.start();
+    await h.mail.stop();
+    expect(notices(h)).toHaveLength(1);
+  });
+
+  it("a new approval replacing a grant is a new connection and sends one more", async () => {
+    const h = await pluginHarness();
+    await connect(h.app, h.authenticator, { name: "dots" });
+    await connect(h.app, h.authenticator, { name: "dots" });
+    expect(notices(h)).toHaveLength(2);
+  });
+
+  it.each([
+    ["no main session", { result: { ok: false, reason: "not_found" } }],
+    ["an ambiguous main", { result: { ok: false, reason: "ambiguous" } }],
+    ["no live reader", { result: { ok: false, reason: "no_consumer" } }],
+    ["a JSON-RPC error", { error: { code: -32000, message: "refused" } }],
+    ["no answer", "unreachable"]
+  ] as const)("%s is logged; the token is issued and works", async (_label, refusal) => {
+    const daemon = await fakeDaemon({
+      override: (method, params) => {
+        if (method !== "session.notify" || params.target !== "main") return undefined;
+        if (refusal === "unreachable") throw new DaemonUnreachableError("ECONNREFUSED");
+        return refusal;
+      }
+    });
+    const h = await pluginHarness({ daemon });
+    const { token, accessToken } = await connect(h.app, h.authenticator, { name: "dots" });
+    expect(token.statusCode).toBe(200);
+    expect(grantNamed(await grantsOf(h), "dots").name).toBe("dots");
+    expect((await mcp(h, accessToken)).statusCode).toBe(200);
+    expect(notices(h)).toHaveLength(1);
+    expect(h.log.warn).toHaveBeenCalledTimes(1);
   });
 });
 

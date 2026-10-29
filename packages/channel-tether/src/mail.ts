@@ -25,7 +25,7 @@ import type { FetchLike } from "./cimd";
 import { DaemonUnreachableError, type DaemonCall } from "./forward";
 import { postCallback, type CallbackLimits, type CallbackPost } from "./callback";
 import type { Doorbell, Grant, Logger, Store, Subscription } from "./store";
-import { renderBounce, renderJobBounce } from "./texts";
+import { renderBounce, renderConnected, renderJobBounce } from "./texts";
 import { mailboxUri } from "./client-contract";
 
 /** The one consumer of every assistant session's outbox. */
@@ -35,6 +35,11 @@ export const TETHER_CONSUMER_ID = "tether-plugin";
 export const DUODUO_SENDER = "duoduo";
 
 export const TETHER_ADDRESS_PREFIX = "tether:";
+
+/** The daemon resolves this alias to the host's main session. */
+const MAIN_SESSION = "main";
+/** The source of the connection notice: the channel itself, not one assistant. */
+const CHANNEL_SENDER = "tether";
 
 /** An assistant's session: one per name, kept across grant replacement. */
 export function tetherSessionKey(name: string): string {
@@ -435,6 +440,23 @@ export class Mailroom {
     failed += await this.settle(grant.name, grant);
     this.reconcile(Object.values(await this.deps.store.readGrants()));
     return failed;
+  }
+
+  /**
+   * Tells the host's main session that a grant was committed (call outside the
+   * mutex). No main session, an ambiguous one, a refused delivery or no answer is logged
+   * only: the grant stands either way.
+   */
+  async announce(grant: Grant): Promise<void> {
+    await this.ask("session.notify", {
+      target: MAIN_SESSION,
+      message: renderConnected({
+        name: grant.name,
+        clientId: grant.client_id,
+        approvedAt: grant.approved_at
+      }),
+      source: CHANNEL_SENDER
+    });
   }
 
   /**

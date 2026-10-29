@@ -37,6 +37,11 @@ loopback by default (`ALADUO_TETHER_HOST` names another IP literal). This page s
   document is a constant of the channel, so nothing is fetched for it; the owner's passkey and name
   are still required for every connection, and its return address is loopback only.
 - **Grants are bound to the origin.** A token issued under one public URL is refused under another.
+- **duoduo's main session is told of each new connection.** Every token the owner's approval
+  issues sends one notice to the session duoduo resolves as `main`: the connection name, the
+  client document URL, the approval time, and the `list` and `revoke` commands. A client presenting its token
+  again sends none. Without a main session, or when duoduo refuses the notice or cannot be reached, the channel
+  logs it and the connection stands.
 
 ## What a connected assistant can reach
 
